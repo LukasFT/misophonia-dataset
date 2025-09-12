@@ -1,0 +1,26 @@
+services:
+  # Your main application:
+  app: &app
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      args:
+        USER_UID: "${UID:-1000}"
+        USER_GID: "${GID:-1000}"
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - .:/app
+
+  # If you need to run your application with GPU/CUDA support:
+  # > docker-compose up --profile=gpu
+  app-gpu:
+    <<: *app
+    profiles:
+      - gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
