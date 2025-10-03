@@ -1,0 +1,56 @@
+{
+    "Chewing_and_mastication": [
+        "chewing_gum"
+    ],
+    "Throat_clearing": [
+        "clearing_throat"
+    ],
+    "Cough": [
+        "clearing_throat"
+    ],
+    "Breathing": [
+        "human_breathing"
+    ],
+    "Respiratory_sounds": [
+        "human_breathing"
+    ],
+    "Pant": [
+        "human_breathing"
+    ],
+    "Chopping_(food)": [
+        "knife_cutting"
+    ],
+    "Scissors": [
+        "knife_cutting"
+    ],
+    "Crumpling_and_crinkling": [
+        "plastic_crumpling"
+    ],
+    "Crushing": [
+        "plastic_crumpling"
+    ],
+    "Digestive": [
+        "swallowing"
+    ],
+    "Gurgling": [
+        "swallowing"
+    ],
+    "Computer_keyboard": [
+        "typing"
+    ],
+    "Typing": [
+        "typing"
+    ],
+    "Typewriter": [
+        "typing"
+    ],
+    "Drip": [
+        "water_drops"
+    ],
+    "Raindrop": [
+        "water_drops"
+    ],
+    "Trickle_and_dribble": [
+        "water_drops"
+    ]
+}

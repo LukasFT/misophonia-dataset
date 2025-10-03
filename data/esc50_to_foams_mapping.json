@@ -1,0 +1,17 @@
+{
+    "breathing": [
+        "human_breathing"
+    ],
+    "coughing": [
+        "clearing_throat"
+    ],
+    "keyboard_typing": [
+        "typing"
+    ],
+    "water_drops": [
+        "water_drops"
+    ],
+    "drinking_sipping": [
+        "swallowing"
+    ]
+}
