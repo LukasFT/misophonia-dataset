@@ -229,5 +229,5 @@ playground.py
 
 
 # Data
-data/foams_processed_audio/*
-data/foams_pilot
+data/*
+!data/.gitkeep

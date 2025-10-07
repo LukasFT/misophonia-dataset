@@ -1,5 +1,6 @@
 import hashlib
 import uuid
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -247,3 +248,8 @@ def create_dummy_data(
     df[int_cols] = df[int_cols].astype(int)
 
     return df
+
+
+if __name__ == "__main__":
+    data = create_dummy_data()
+    data.to_csv(Path(__file__).parent.parent / "data" / "dummy_data.csv", index=False)
