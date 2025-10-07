@@ -1,17 +1,17 @@
 {
-    "breathing": [
+    "breathing": {"foams_mapping":
         "human_breathing"
-    ],
-    "coughing": [
+    },
+    "coughing": {"foams_mapping":
         "clearing_throat"
-    ],
-    "keyboard_typing": [
+    },
+    "keyboard_typing": {"foams_mapping":
         "typing"
-    ],
-    "water_drops": [
+    },
+    "water_drops": {"foams_mapping":
         "water_drops"
-    ],
-    "drinking_sipping": [
+    },
+    "drinking_sipping": {"foams_mapping":
         "swallowing"
-    ]
+    }
 }
