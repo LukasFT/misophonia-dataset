@@ -22,48 +22,12 @@ RUN apt-get update \
       curl \
       # Needed for R:
       ca-certificates \
-      gnupg \
-      wget \
-      build-essential \
       # * Dev:
       git \
       bash \
       fish \
     # * Remove apt cache to reduce image size
     && rm -rf /var/lib/apt/lists/*
-
-# Install R packages (using r2u, see https://github.com/eddelbuettel/r2u)
-RUN \
-    # Fetch key
-    wget -q -O- https://eddelbuettel.github.io/r2u/assets/dirk_eddelbuettel_key.asc \
-      | tee -a /etc/apt/trusted.gpg.d/cranapt_key.asc \
-    # Add the apt repo
-    && echo "deb [arch=amd64] https://r2u.stat.illinois.edu/ubuntu jammy main" > /etc/apt/sources.list.d/cranapt.list \
-    && apt-get update -qq \
-    # Ensure you have current R binaries
-    && wget -q -O- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc \
-      | tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc \
-    && echo "deb [arch=amd64] https://cloud.r-project.org/bin/linux/ubuntu jammy-cran40/" \
-        > /etc/apt/sources.list.d/cran_r.list \
-    && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys \
-        67C2D66C4B1D4339 51716619E084DAB9 \
-    && apt-get update -qq \
-    && apt-get install --yes --no-install-recommends r-base-dev \
-    # Use pinning for the r2u repo
-    && echo "Package: *" > /etc/apt/preferences.d/99cranapt \
-    && echo "Pin: release o=CRAN-Apt Project" >> /etc/apt/preferences.d/99cranapt \
-    && echo "Pin: release l=CRAN-Apt Packages" >> /etc/apt/preferences.d/99cranapt \
-    && echo "Pin-Priority: 700"  >> /etc/apt/preferences.d/99cranapt \
-    # Install r-cran- packages
-    && apt-get install --yes \
-      r-cran-lme4 \
-      r-cran-lmertest \
-      r-cran-emmeans \
-    # Verify installation
-    && Rscript -e 'print(R.version.string); library(lme4); library(lmerTest); library(emmeans); sessionInfo()' \
-    # Remove apt cache to reduce image size
-    && rm -rf /var/lib/apt/lists/*
-
 
 
 # Create a non-root user called app and switch to it

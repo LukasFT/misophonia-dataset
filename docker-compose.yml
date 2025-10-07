@@ -10,6 +10,7 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - .:/app
+      - ./data:/data
 
   # If you need to run your application with GPU/CUDA support:
   # > docker-compose up --profile=gpu
@@ -24,3 +25,12 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
+
+  # R:
+  r-analysis:
+    build: ./r_analysis
+    volumes:
+      - ./r_analysis:/app
+      - ./data:/data
+
