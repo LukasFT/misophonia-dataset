@@ -18,4 +18,6 @@ def test_create_dummy_data():
         "is_foams",
         "is_reused",
         "did_identify",
+        "category",
+        "version",
     }.issubset(data.columns)

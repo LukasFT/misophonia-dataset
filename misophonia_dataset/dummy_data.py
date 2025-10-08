@@ -23,6 +23,18 @@ def create_dummy_data(
     pairs_per_category: int = 2,
     prob_declared: float = 0.4,
     prob_dropout: float = 0.05,  # per-trial chance of subject stopping early
+    reff_subject_intercept: float = 0.15,
+    reff_subject_trig: float = 0.30,
+    reff_item_intercept: float = 0.04,
+    reff_item_trig: float = 0.1,
+    reff_category_trig: float = 0.2,  # per-category deviation applied on trigger trials
+    noise_sd: float = 0.2,
+    fixeff_intercept: float = 1.3,
+    fixeff_trig: float = 0.3,
+    fixeff_declared: float = 0.7,
+    fixeff_identify: float = 0.2,
+    fixeff_foams: float = 0.08,
+    fixeff_order: float = 0.02,
 ) -> pd.DataFrame:
     """
     Generate a synthetic trial-level dataframe with columns:
@@ -37,19 +49,20 @@ def create_dummy_data(
             "is_anchor",        # {0,1} – exactly one pair_uuid serves as the universal anchor
             "is_reused",        # {0,1} – 1 on the second anchor presentation (last trial)
             "did_identify",     # {0,1} – identification success (mostly on trigger trials)
+            "category",         # str – "ctrl" on control trials, else the trigger category
         }
 
     Design features:
-      - Crossed subjects × item pairs with A/B masking: subject group A/B and pair mask A/B
-        determine whether the shown version is trigger (is_trig=1) or control (0).
-      - A universal anchor pair is presented twice per subject (first and last). The last anchor
-        is marked is_reused=1. Both anchor trials share the same pair_uuid.
+      - Crossed subjects × item pairs with A/B masking.
+      - A universal anchor pair is presented twice per subject (first and last).
       - Subjects declare triggering categories with probability `prob_declared` per category.
-      - Optional early dropout per subject with `prob_dropout`, truncating non-anchor trials.
-      - Ratings are simulated from a simple additive model with noise and then rounded/clipped
-        to [0,5].
+      - Optional early dropout with `prob_dropout`, truncating non-anchor trials.
+      - Ratings follow an additive model + noise, rounded/clipped to [0,5].
 
-    This is dummy data for testing; it is not meant to match any real distribution.
+    Random effects (all mean 0):
+      - Subject:   b0_s (intercept), b1_s (trigger slope)
+      - Item/pair: b0_i (intercept), b1_i (trigger slope)
+      - Category:  b_cat (trigger-only deviation; control uses category="ctrl" with 0 shift)
     """
     rng = np.random.default_rng(_seed_to_int(seed))
 
@@ -92,17 +105,37 @@ def create_dummy_data(
     # ----- Define a universal anchor pair (same UUID everywhere) -----
     anchor_pair_uuid = uuid.uuid4().hex
 
+    # ----- RANDOM EFFECTS: pre-sample for categories, items, subjects -----
+    # Category effects apply only on trigger trials. Control uses category="ctrl" with 0 effect.
+    cat_effect_trig: dict[str, float] = {cat: float(rng.normal(0.0, reff_category_trig)) for cat in categories}
+    cat_effect_trig["ctrl"] = 0.0  # ensure no shift on control trials
+
+    # Item (pair) intercept & trigger slope (include anchor pair)
+    item_b0: dict[str, float] = {}
+    item_b1: dict[str, float] = {}
+    for p in pairs:
+        item_b0[p["pair_uuid"]] = float(rng.normal(0.0, reff_item_intercept))
+        item_b1[p["pair_uuid"]] = float(np.abs(rng.normal(0.0, reff_item_trig)))  # trig slope >=0
+    item_b0[anchor_pair_uuid] = float(rng.normal(0.0, reff_item_intercept))
+    item_b1[anchor_pair_uuid] = float(np.abs(rng.normal(0.0, reff_item_trig)))  # trig slope >=0
+
     # ----- Subjects -----
     subjects = []
+    # Subject intercept & trigger slope
+    subj_b0: dict[str, float] = {}
+    subj_b1: dict[str, float] = {}
     for _ in range(n_subjects):
+        s_uuid = uuid.uuid4().hex
         subjects.append(
             {
-                "subject_uuid": uuid.uuid4().hex,
+                "subject_uuid": s_uuid,
                 "group_ab": rng.choice(["A", "B"]),
                 # Declared trigger set: Bernoulli per category
                 "declared": {cat for cat in categories if rng.random() < prob_declared},
             }
         )
+        subj_b0[s_uuid] = float(rng.normal(0.0, reff_subject_intercept))
+        subj_b1[s_uuid] = float(np.abs(rng.normal(0.0, reff_subject_trig)))  # trig slope >=0
 
     # ----- Assemble trials -----
     records: list[dict[str, Any]] = []
@@ -118,7 +151,7 @@ def create_dummy_data(
             is_trig = int(s_group == p["pair_mask"])
             is_decl_trig = int(is_trig == 1 and p["category"] in declared)
 
-            # did_identify: mostly relevant on trigger trials; make it more likely when declared
+            # did_identify: mostly relevant on trigger trials; more likely when declared
             if is_trig:
                 base_p = 0.35
                 base_p += 0.35 if is_decl_trig else 0.10
@@ -126,6 +159,9 @@ def create_dummy_data(
                 did_identify = int(rng.random() < base_p)
             else:
                 did_identify = 0
+
+            # NEW: category label for this trial
+            trial_category = p["category"] if is_trig == 1 else "ctrl"
 
             non_anchor_trials.append(
                 {
@@ -139,6 +175,7 @@ def create_dummy_data(
                     "is_anchor": 0,
                     "is_reused": 0,
                     "did_identify": did_identify,
+                    "category": trial_category,  # NEW
                 }
             )
 
@@ -174,6 +211,7 @@ def create_dummy_data(
                 "is_anchor": 1,
                 "is_reused": 0,
                 "did_identify": int(first_anchor_identify),
+                "category": (anchor_category if first_anchor_is_trig == 1 else "ctrl"),  # NEW
             }
         )
 
@@ -197,35 +235,42 @@ def create_dummy_data(
                 "is_anchor": 1,
                 "is_reused": 1,
                 "did_identify": int(last_anchor_identify),
+                "category": (anchor_category if last_anchor_is_trig == 1 else "ctrl"),  # NEW
             }
         )
 
-        # But we actually just need to set order sequentially for the appended subset:
+        # Set order sequentially for all newly-added rows from this subject:
         subject_rows_idx = [i for i, r in enumerate(records) if r["subject_uuid"] == s_uuid and r["order"] is None]
-        M = len(subject_rows_idx)  # noqa: N806
         for local_ord, idx in enumerate(subject_rows_idx, start=1):
             records[idx]["order"] = local_ord
 
         # Generate ratings after knowing M and order
-        # Simple additive model with noise, then round to [0..5]
+        # Simple additive model with noise, then round/clipped to [0..5]
         for idx in subject_rows_idx:
             r = records[idx]
-            order = r["order"]
-            # Centered order effect (small)
-            ord_c = order - (M + 1) / 2.0
-            ord_eff = 0.15 * (ord_c / max(1.0, M / 2.0))  # mild late-trial drift
+
+            sb0 = subj_b0[r["subject_uuid"]]
+            sb1 = subj_b1[r["subject_uuid"]]
+            ib0 = item_b0[r["pair_uuid"]]
+            ib1 = item_b1[r["pair_uuid"]]
+            # category effect applies only on trigger trials; category is "ctrl" on controls (0 effect)
+            cat_eff = cat_effect_trig.get(r["category"], 0.0) if r["is_trig"] == 1 else 0.0
 
             mu = (
-                1.3
-                + 0.7 * r["is_trig"]
-                + 0.6 * r["is_declared_trig"]
-                + 0.2 * r["did_identify"]
-                + 0.1 * r["is_foams"]
-                + ord_eff
+                fixeff_intercept
+                + fixeff_trig * r["is_trig"]
+                + fixeff_declared * r["is_declared_trig"]
+                + fixeff_identify * r["did_identify"]
+                + fixeff_foams * r["is_foams"]
+                + fixeff_order * r["order"]
+                + sb0
+                + sb1 * r["is_trig"]  # subject REs
+                + ib0
+                + ib1 * r["is_trig"]  # item REs
+                + cat_eff  # category RE (trigger-only)
             )
-            y = mu + rng.normal(0.7)
-            y = int(np.clip(np.rint(y), 0, 5))
-            r["rating"] = y
+
+            r["rating"] = int(np.clip(np.rint(mu + rng.normal(0.0, noise_sd)), 0, 5))
 
     df = pd.DataFrame.from_records(
         records,
@@ -240,12 +285,15 @@ def create_dummy_data(
             "is_anchor",
             "is_reused",
             "did_identify",
+            "category",
         ],
     )
 
     # Ensure types are sensible
     int_cols = ["rating", "is_trig", "is_declared_trig", "order", "is_foams", "is_anchor", "is_reused", "did_identify"]
     df[int_cols] = df[int_cols].astype(int)
+
+    df["version"] = np.where(df["is_trig"] == 1, "trig", "ctrl")
 
     return df
 
