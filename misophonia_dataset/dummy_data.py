@@ -21,14 +21,14 @@ def create_dummy_data(
     n_subjects: int = 30,
     categories: list[str] | None = None,
     pairs_per_category: int = 2,
-    prob_declared: float = 0.4,
+    prob_declared: float = 0.3,
     prob_dropout: float = 0.05,  # per-trial chance of subject stopping early
-    reff_subject_intercept: float = 0.15,
-    reff_subject_trig: float = 0.30,
-    reff_item_intercept: float = 0.04,
-    reff_item_trig: float = 0.1,
-    reff_category_trig: float = 0.2,  # per-category deviation applied on trigger trials
-    noise_sd: float = 0.2,
+    reff_subject_intercept: tuple[float, float] = (0.0, 0.02),  # mean, sd
+    reff_subject_trig: tuple[float, float] = (0.0, 0.15),  # mean, sd
+    reff_item_intercept: tuple[float, float] = (0.0, 0.07),
+    reff_item_trig: tuple[float, float] = (0.0, 0.05),
+    reff_category_trig: tuple[float, float] = (0.0, 0.05),  # per-category deviation applied on trigger trials
+    reff_noise: tuple[float, float] = (0.0, 0.08),
     fixeff_intercept: float = 1.3,
     fixeff_trig: float = 0.3,
     fixeff_declared: float = 0.7,
@@ -107,17 +107,17 @@ def create_dummy_data(
 
     # ----- RANDOM EFFECTS: pre-sample for categories, items, subjects -----
     # Category effects apply only on trigger trials. Control uses category="ctrl" with 0 effect.
-    cat_effect_trig: dict[str, float] = {cat: float(rng.normal(0.0, reff_category_trig)) for cat in categories}
+    cat_effect_trig: dict[str, float] = {cat: float(rng.normal(*reff_category_trig)) for cat in categories}
     cat_effect_trig["ctrl"] = 0.0  # ensure no shift on control trials
 
     # Item (pair) intercept & trigger slope (include anchor pair)
     item_b0: dict[str, float] = {}
     item_b1: dict[str, float] = {}
     for p in pairs:
-        item_b0[p["pair_uuid"]] = float(rng.normal(0.0, reff_item_intercept))
-        item_b1[p["pair_uuid"]] = float(np.abs(rng.normal(0.0, reff_item_trig)))  # trig slope >=0
-    item_b0[anchor_pair_uuid] = float(rng.normal(0.0, reff_item_intercept))
-    item_b1[anchor_pair_uuid] = float(np.abs(rng.normal(0.0, reff_item_trig)))  # trig slope >=0
+        item_b0[p["pair_uuid"]] = float(rng.normal(*reff_item_intercept))
+        item_b1[p["pair_uuid"]] = float(rng.normal(*reff_item_trig))
+    item_b0[anchor_pair_uuid] = float(rng.normal(*reff_item_intercept))
+    item_b1[anchor_pair_uuid] = float(rng.normal(*reff_item_trig))
 
     # ----- Subjects -----
     subjects = []
@@ -134,8 +134,8 @@ def create_dummy_data(
                 "declared": {cat for cat in categories if rng.random() < prob_declared},
             }
         )
-        subj_b0[s_uuid] = float(rng.normal(0.0, reff_subject_intercept))
-        subj_b1[s_uuid] = float(np.abs(rng.normal(0.0, reff_subject_trig)))  # trig slope >=0
+        subj_b0[s_uuid] = float(rng.normal(*reff_subject_intercept))
+        subj_b1[s_uuid] = float(rng.normal(*reff_subject_trig))  # trig slope >=0
 
     # ----- Assemble trials -----
     records: list[dict[str, Any]] = []
@@ -149,7 +149,8 @@ def create_dummy_data(
         non_anchor_trials: list[dict[str, Any]] = []
         for p in pairs:
             is_trig = int(s_group == p["pair_mask"])
-            is_decl_trig = int(is_trig == 1 and p["category"] in declared)
+            is_decl_trig_pair = int(p["category"] in declared)
+            is_decl_trig = int(is_trig == 1 and is_decl_trig_pair == 1)
 
             # did_identify: mostly relevant on trigger trials; more likely when declared
             if is_trig:
@@ -160,9 +161,6 @@ def create_dummy_data(
             else:
                 did_identify = 0
 
-            # NEW: category label for this trial
-            trial_category = p["category"] if is_trig == 1 else "ctrl"
-
             non_anchor_trials.append(
                 {
                     "rating": np.nan,  # fill after order is determined
@@ -170,12 +168,13 @@ def create_dummy_data(
                     "pair_uuid": p["pair_uuid"],
                     "is_trig": is_trig,
                     "is_declared_trig": is_decl_trig,
+                    "is_declared_trig_pair": is_decl_trig_pair,
                     "order": None,  # fill later
                     "is_foams": int(is_trig == 1 and p["is_foams_pair"] == 1),
                     "is_anchor": 0,
                     "is_reused": 0,
                     "did_identify": did_identify,
-                    "category": trial_category,  # NEW
+                    "pair_category": p["category"],  # NEW
                 }
             )
 
@@ -195,7 +194,8 @@ def create_dummy_data(
         last_anchor_is_trig = 1 - first_anchor_is_trig
 
         # First anchor row
-        first_anchor_decl = int(first_anchor_is_trig == 1 and anchor_category in declared)
+        anchor_decl_pair = int(anchor_category in declared)
+        first_anchor_decl = int(first_anchor_is_trig == 1 and anchor_decl_pair == 1)
         first_anchor_identify = int(
             rng.random() < (0.6 if first_anchor_decl else (0.45 if first_anchor_is_trig else 0.05))
         )
@@ -206,12 +206,13 @@ def create_dummy_data(
                 "pair_uuid": anchor_pair_uuid,
                 "is_trig": int(first_anchor_is_trig),
                 "is_declared_trig": int(first_anchor_decl),
+                "is_declared_trig_pair": anchor_decl_pair,
                 "order": None,
                 "is_foams": 0,
                 "is_anchor": 1,
                 "is_reused": 0,
                 "did_identify": int(first_anchor_identify),
-                "category": (anchor_category if first_anchor_is_trig == 1 else "ctrl"),  # NEW
+                "pair_category": anchor_category,
             }
         )
 
@@ -230,12 +231,13 @@ def create_dummy_data(
                 "pair_uuid": anchor_pair_uuid,
                 "is_trig": int(last_anchor_is_trig),
                 "is_declared_trig": int(last_anchor_decl),
+                "is_declared_trig_pair": anchor_decl_pair,
                 "order": None,
                 "is_foams": 0,
                 "is_anchor": 1,
                 "is_reused": 1,
                 "did_identify": int(last_anchor_identify),
-                "category": (anchor_category if last_anchor_is_trig == 1 else "ctrl"),  # NEW
+                "pair_category": anchor_category,
             }
         )
 
@@ -254,15 +256,15 @@ def create_dummy_data(
             ib0 = item_b0[r["pair_uuid"]]
             ib1 = item_b1[r["pair_uuid"]]
             # category effect applies only on trigger trials; category is "ctrl" on controls (0 effect)
-            cat_eff = cat_effect_trig.get(r["category"], 0.0) if r["is_trig"] == 1 else 0.0
+            cat_eff = cat_effect_trig.get(r["pair_category"], 0.0) if r["is_trig"] == 1 else 0.0
 
             mu = (
                 fixeff_intercept
                 + fixeff_trig * r["is_trig"]
-                + fixeff_declared * r["is_declared_trig"]
+                + fixeff_declared * r["is_declared_trig"] * r["is_trig"]
                 + fixeff_identify * r["did_identify"]
-                + fixeff_foams * r["is_foams"]
-                + fixeff_order * r["order"]
+                + fixeff_foams * r["is_foams"] * r["is_trig"]
+                + fixeff_order * (r["order"] - 1)
                 + sb0
                 + sb1 * r["is_trig"]  # subject REs
                 + ib0
@@ -270,30 +272,26 @@ def create_dummy_data(
                 + cat_eff  # category RE (trigger-only)
             )
 
-            r["rating"] = int(np.clip(np.rint(mu + rng.normal(0.0, noise_sd)), 0, 5))
+            # r["rating"] = int(np.clip(np.rint(mu + rng.normal(*reff_noise)), 0, 5))
+            r["rating"] = float(mu + rng.normal(*reff_noise))  # Debug
 
-    df = pd.DataFrame.from_records(
-        records,
-        columns=[
-            "rating",
-            "subject_uuid",
-            "pair_uuid",
-            "is_trig",
-            "is_declared_trig",
-            "order",
-            "is_foams",
-            "is_anchor",
-            "is_reused",
-            "did_identify",
-            "category",
-        ],
-    )
+    df = pd.DataFrame(records)
 
     # Ensure types are sensible
-    int_cols = ["rating", "is_trig", "is_declared_trig", "order", "is_foams", "is_anchor", "is_reused", "did_identify"]
+    int_cols = [
+        # "rating",
+        "is_trig",
+        "is_declared_trig",
+        "order",
+        "is_foams",
+        "is_anchor",
+        "is_reused",
+        "did_identify",
+    ]
     df[int_cols] = df[int_cols].astype(int)
 
     df["version"] = np.where(df["is_trig"] == 1, "trig", "ctrl")
+    df["category"] = np.where(df["is_trig"] == 1, df["pair_category"], "ctrl")
 
     return df
 
