@@ -1,0 +1,9 @@
+# misophonia.intro.im {
+# 	encode zstd gzip
+# 	reverse_proxy experiment-jatos:9000
+# }
+
+localhost, "127.0.0.1" {
+	encode zstd gzip
+	reverse_proxy experiment-jatos:9000
+}
