@@ -1,20 +1,30 @@
-const stimuli = [
-  { stimulus_id: "phrases2b20" },
-  { stimulus_id: "Haircut16-44p1" },
-];
-stimuli.forEach(s => s.wav_url = `sounds/${s.stimulus_id}.wav`);
+const stimuliAB = {
+  A: [
+    { stimulus_id: "phrases2b20" },
 
+    { stimulus_id: "Haircut16-44p1-2", anchor_position: "first" },
+    { stimulus_id: "Haircut16-44p1", anchor_position: "last" }
+  ],
+  B: [
+    { stimulus_id: "phrases2b20" },
 
-const preload = {
-    type: jsPsychPreload,
-    auto_preload: true
+    { stimulus_id: "Haircut16-44p1", anchor_position: "last" },
+    { stimulus_id: "Haircut16-44p1", anchor_position: "first" }
+  ],
 };
+Object.values(stimuliAB).forEach(g => {
+  g.forEach(s => {
+    s.wav_url = `sounds/${s.stimulus_id}.wav`
+  });
+});
+
 
 window.onbeforeunload = function() {
     return "Are you sure you want to leave? Your progress will NOT be saved.";
 }
 
 const on_data_update = (data) => {
+  if (data.do_not_save) return; // skip non-essential data
   const jsonData = JSON.stringify(data);
   console.log(`Data updated: ${jsonData}`);
 
@@ -27,6 +37,22 @@ const jsPsych = initJsPsych({
   on_data_update: on_data_update,
 });
 
+const welcomeHtml = `
+  <h1>Misophonia Study</h1>
+
+  <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec eros tellus, congue ut aliquet vel, ullamcorper ut ipsum. In hac habitasse platea dictumst. Curabitur auctor interdum nibh ut molestie. Pellentesque ac sapien nisi. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Curabitur sed sagittis dolor, id egestas felis. Maecenas sollicitudin id sapien sed accumsan. Sed molestie posuere molestie. Nam ac ipsum dapibus, vestibulum purus et, consequat quam. Nunc dictum felis non pharetra rhoncus. Sed nec rhoncus urna. Maecenas luctus tellus non metus consequat ornare. Fusce nec leo sem. Pellentesque lobortis sapien eu dui auctor porta. Vestibulum sagittis, ex eu suscipit bibendum, ante leo tincidunt risus, luctus ornare orci tellus id lorem. </p>
+`;
+
+
+
+const welcomePage = {
+  type: jsPsychHtmlButtonResponse,
+  data: {
+    do_not_save: true,
+  },
+  stimulus: welcomeHtml,
+  choices: ["Continue"],
+};
 
 const consent_instructions_page = {
   type: jsPsychSurveyHtmlForm,
@@ -124,25 +150,36 @@ const dmq_page = {
 };
 
 
+// const stimulusPresentPage = {
+//   type: jsPsychSurveyHtmlForm,
+//   data: {
+//     trial_name: "stimuli_presentation",
+//     stimulus: jsPsych.timelineVariable("stimulus")
+//   },
+//   dataAsArray: true,
+//   preamble: () => `<p>Stimuli: ${jsPsych.evaluateTimelineVariable("stimulus")}</p>`,
+//   html: `
+//     <p>Placeholder for stimuli presentation.</p>
+//   `
+// };
 const stimulusPresentPage = {
-  type: jsPsychSurveyHtmlForm,
-  data: {
-    trial_name: "stimuli_presentation",
-    stimulus: jsPsych.timelineVariable("stimulus")
-  },
-  dataAsArray: true,
-  preamble: () => `<p>Stimuli: ${jsPsych.evaluateTimelineVariable("stimulus")}</p>`,
-  html: `
-    <p>Placeholder for stimuli presentation.</p>
-  `
+    type: jsPsychAudioButtonResponse,
+    data: {
+      trial_name: "stimuli_presentation",
+    },
+    stimulus: jsPsych.timelineVariable("wav_url"),
+    trial_duration: 30000,
+    choices: ['Sound is too uncofortable, stop playback'],
+    prompt: "<p>Close your eyes and listen to the sound.</p>"
 };
+
 
 
 const stimulusRatePage = {
   type: jsPsychSurveyLikert,
   data: {
     trial_name: "stimuli_rate_page",
-    stimulus: jsPsych.timelineVariable("stimulus")
+    stimulus: jsPsych.timelineVariable("wav_url")
   },
   preamble: `
     <h1>Placeholder for stimuli rating</h1>
@@ -156,26 +193,6 @@ const stimulusRatePage = {
   }],
 };
 
-const stimulusProcedureTimeline = [stimulusPresentPage, stimulusRatePage];
-const stimulusProcedure = {
-  timeline: stimulusProcedureTimeline,
-  randomize_order: true,
-  timeline_variables: stimuli.map(s => ({ stimulus: s.wav_url })),
-};
-
-const anchorCtrlStimulusProcedure = {
-  timeline: stimulusProcedureTimeline,
-  timeline_variables: [
-    { stimulus: "ctrl-anchor" },
-  ],
-};
-
-const anchorTrigStimulusProcedure = {
-  timeline: stimulusProcedureTimeline,
-  timeline_variables: [
-    { stimulus: "trig-anchor" },
-  ],
-};
 
 const thanksPage = {
   type: jsPsychCallFunction,
@@ -192,7 +209,7 @@ const thanksPage = {
     }
     const shareLink = getShareLink();
     document.querySelector("#jspsych-root").innerHTML = `
-    <div style="max-width:600px;margin:2rem auto;font-family:sans-serif;padding:20px;">
+    <div style="max-width:600px;margin:2rem auto;font-family:sans-serif;">
       <h1>Thank You!</h1>
       <p>Your participation is greatly appreciated.</p>
       <p>If you would like to share this study with others, please share the following link:</p>
@@ -289,16 +306,48 @@ window.jatos.onLoad(async () => {
   document.querySelector("#jatos-waiting-message").style.display = "none";
 
   const condition = await ensureConditionAB();
-  const firstAnchor = condition === "A" ? anchorCtrlStimulusProcedure : anchorTrigStimulusProcedure;
-  const secondAnchor = condition === "A" ? anchorTrigStimulusProcedure : anchorCtrlStimulusProcedure;
+  const stimuli = stimuliAB[condition];
+
+  const preloadWelcome = {
+    type: jsPsychPreload,
+    data: {
+      do_not_save: true,
+    },
+    auto_preload: false, // specify files manually
+    audio: stimuli.map(s => s.wav_url),
+    // continue_after_error: true, // There is an error with this when errors occur ...
+    message: `
+    ${welcomeHtml}
+    <p>Loading experiment assets, please wait...</p>
+    `,
+};
+
+  const stimulusProcedureTimeline = [stimulusPresentPage, stimulusRatePage];
+  const stimulusProcedure = {
+    timeline: stimulusProcedureTimeline,
+    randomize_order: true,
+    timeline_variables: stimuli.filter(s => !s.anchor_position),
+  };
+
+  const firstAnchor = {
+    timeline: stimulusProcedureTimeline,
+    timeline_variables: stimuli.filter(s => s.anchor_position === "first"),
+  };
+
+  const secondAnchor = {
+    timeline: stimulusProcedureTimeline,
+    timeline_variables: stimuli.filter(s => s.anchor_position === "last"),
+  };
 
   const timeline = [
+    preloadWelcome,
+    welcomePage,
     consent_instructions_page,
     // demographics_page,
     // dmq_page,
-    // firstAnchor,
+    firstAnchor,
     stimulusProcedure,
-    // secondAnchor,
+    secondAnchor,
     thanksPage
   ];
   // drip save
