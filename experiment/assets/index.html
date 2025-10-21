@@ -16,8 +16,103 @@
 
     <link rel="stylesheet" type="text/css" href="https://unpkg.com/jspsych@8.2.2/css/jspsych.css" />
     <style type="text/css">
-      .jspsych-content {
+      /* .jspsych-content {
         margin: 20px;
+      } */
+
+      /* --- Ratings --- */
+      /* Container */
+      .rating-fieldset {
+        border: 0;
+        padding: 0;
+        margin: 0 0 1rem 0;
+      }
+      .rating-legend {
+        font-size: 1.125rem;
+        font-weight: 600;
+        margin-bottom: .25rem;
+      }
+
+      /* Stack the options vertically with comfortable spacing */
+      .rating-stack {
+        display: grid;
+        gap: .6rem;
+      }
+
+      /* Hide the native radio while keeping it accessible */
+      .rating-input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* The “button” */
+      .rating-label {
+        --rating-color: #eee;               /* default (overridden inline) */
+        display: grid;
+        grid-template-columns: auto 1fr;
+        align-items: center;
+        gap: .75rem;
+        padding: .75rem 1rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        background: var(--rating-color);
+        cursor: pointer;
+        transition: transform .06s ease, box-shadow .06s ease, border-color .06s ease;
+      }
+
+      /* Little circle indicator at the left */
+      .rating-circle {
+        width: 1.1rem;
+        height: 1.1rem;
+        border-radius: 999px;
+        border: 2px solid #555;
+        background: #fff;
+      }
+
+      /* Label text */
+      .rating-text {
+        font-weight: 600;
+        color: #111;
+      }
+
+      /* Hover/focus styles */
+      .rating-label:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 1px 6px rgba(0,0,0,.08);
+      }
+      .rating-input:focus-visible + .rating-label {
+        outline: 3px solid #3b82f6; /* focus ring */
+        outline-offset: 2px;
+      }
+
+      /* Checked state */
+      .rating-input:checked + .rating-label {
+        border-color: #111;
+        box-shadow: 0 0 0 2px #111 inset;
+      }
+      .rating-input:checked + .rating-label .rating-circle {
+        background: #111;
+        border-color: #111;
+      }
+
+      /* Small helper text */
+      .rating-hint {
+        color: #6b7280;
+        margin-top: .5rem;
+        margin-bottom: 0;
+        font-size: .95rem;
+      }
+
+      .visually-hidden-validator {
+        position: absolute !important;
+        left: -9999px !important;
+        width: 1px !important;
+        height: 1px !important;
+        opacity: 0 !important;
+        border: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
       }
     </style>
   </head>

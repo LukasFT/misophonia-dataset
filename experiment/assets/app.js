@@ -18,6 +18,13 @@ Object.values(stimuliAB).forEach(g => {
   });
 });
 
+const triggerCategories = [
+  "Category A",
+  "Category B",
+  "Category C",
+  "Category D",
+]
+
 
 window.onbeforeunload = function() {
     return "Are you sure you want to leave? Your progress will NOT be saved.";
@@ -150,22 +157,11 @@ const dmq_page = {
 };
 
 
-// const stimulusPresentPage = {
-//   type: jsPsychSurveyHtmlForm,
-//   data: {
-//     trial_name: "stimuli_presentation",
-//     stimulus: jsPsych.timelineVariable("stimulus")
-//   },
-//   dataAsArray: true,
-//   preamble: () => `<p>Stimuli: ${jsPsych.evaluateTimelineVariable("stimulus")}</p>`,
-//   html: `
-//     <p>Placeholder for stimuli presentation.</p>
-//   `
-// };
 const stimulusPresentPage = {
     type: jsPsychAudioButtonResponse,
     data: {
       trial_name: "stimuli_presentation",
+      stimulus_id: jsPsych.timelineVariable("stimulus_id")
     },
     stimulus: jsPsych.timelineVariable("wav_url"),
     trial_duration: 30000,
@@ -174,23 +170,107 @@ const stimulusPresentPage = {
 };
 
 
-
+const stimulusRatingButtons = [
+  { label: "5", color: "#e20001" },
+  { label: "4", color: "#e25800" },
+  { label: "3", color: "#e8b30f" },
+  { label: "2", color: "#e2d70b" },
+  { label: "1", color: "#97e600" },
+  { label: "0", color: "#2ae204" },
+];
 const stimulusRatePage = {
-  type: jsPsychSurveyLikert,
+  type: jsPsychSurveyHtmlForm,
   data: {
     trial_name: "stimuli_rate_page",
-    stimulus: jsPsych.timelineVariable("wav_url")
+    stimulus_id: jsPsych.timelineVariable("stimulus_id"),
+    wav_url: jsPsych.timelineVariable("wav_url")
   },
-  preamble: `
-    <h1>Placeholder for stimuli rating</h1>
-    <p>Placeholder for stimuli rating.</p>
+  html: () =>  `
+    <fieldset class="rating-fieldset">
+      <legend class="rating-legend">
+        Rate the discomfort/anxiety you felt while hearing the sound
+      </legend>
+
+      <p class="rating-hint">Very much discomfort</p>
+
+      <div class="rating-stack" role="radiogroup" aria-label="Discomfort rating">
+        ${stimulusRatingButtons.map((btn, i) => {
+          const id = `rate-${i}`;
+          // Per HTML spec, “required” on ONE radio within the group makes the whole group required
+          // (we set it on the first input).
+          const required = i === 0 ? "required" : "";
+          return `
+            <div class="rating-option">
+              <input class="rating-input" type="radio" name="stimuli_rating" id="${id}"
+                    value="${btn.label}" ${required} />
+              <label class="rating-label" for="${id}" style="--rating-color: ${btn.color}">
+                <span class="rating-circle" aria-hidden="true"></span>
+                <span class="rating-text">${btn.label}</span>
+              </label>
+            </div>`;
+        }).join("")}
+      </div>
+
+      <p class="rating-hint">Very little discomfort</p>
+    </fieldset>
+
+
+    <fieldset class="rating-fieldset" style="margin-top:2rem;" aria-labelledby="cat-legend">
+      <legend class="rating-legend" id="cat-legend">
+        Which of the following categories did the sound you just heard belong to?
+      </legend>
+
+      <p class="rating-hint">Select one or more options.</p>
+
+      <input type="hidden" name="trigger_categories" id="trigger-categories-hidden" required />
+      <input type="text" id="trigger-categories" name="trigger_categories" required autocomplete="off" class="visually-hidden-validator" />
+
+      <div class="rating-stack" role="group" aria-label="Sound category (choose one or more)">
+        ${triggerCategories.concat(["None of the above"]).map((cat, i) => {
+          const id = `cat-${i}`;
+          const isNone = cat === "None of the above";
+          return `
+            <div class="rating-option">
+              <input class="rating-input category-input" type="checkbox"
+                     id="${id}" value="${cat}" data-none="${isNone ? '1' : '0'}" />
+              <label class="rating-label" for="${id}">
+                <span class="rating-text">${cat}</span>
+              </label>
+            </div>`;
+        }).join("")}
+      </div>
+    </fieldset>
   `,
-  questions: [{
-      prompt: "Please rate the stimuli you just experienced.",
-      name: "stimuli_rating",
-      labels: dmq_likert_scale,
-      required: true
-  }],
+  on_load: () => {
+    const hidden = document.getElementById('trigger-categories');
+    const boxes = Array.from(document.querySelectorAll('.category-input'));
+    const noneBox = boxes.find(b => b.dataset.none === '1');
+
+    function syncState(changed) {
+      // Enforce “None of the above” mutual exclusivity
+      if (changed && changed === noneBox && noneBox.checked) {
+        boxes.forEach(b => { if (b !== noneBox) b.checked = false; });
+      } else if (changed && changed !== noneBox && changed.checked) {
+        if (noneBox) noneBox.checked = false;
+      }
+
+      // Collect selected values
+      const selected = boxes.filter(b => b.checked).map(b => b.value);
+
+      // Required: at least one selected
+      if (selected.length === 0) {
+        hidden.value = "";
+        hidden.setCustomValidity("Please select at least one category.");
+      } else {
+        hidden.value = JSON.stringify(selected); // saved as a JSON array string
+        hidden.setCustomValidity("");
+      }
+    }
+
+    boxes.forEach(b => b.addEventListener('change', () => syncState(b)));
+    // Initialize validity on page load
+    syncState(null);
+  }
 };
 
 
@@ -198,6 +278,7 @@ const thanksPage = {
   type: jsPsychCallFunction,
   data: {
     trial_name: "thanks_page",
+    do_not_save: true,
   },
   func: async () => {
     window.onbeforeunload = null; // Disable the warning on unload
