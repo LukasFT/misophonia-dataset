@@ -34,6 +34,7 @@ def fsd50k_triggers(fsd_50k: pd.DataFrame, mapping: dict) -> pd.DataFrame:
     """
     trigger_classes = [k for k in mapping.keys()]
     fsd_50k_triggers = fsd_50k[fsd_50k['labels'].isin(trigger_classes)]
+    fsd_50k_triggers.loc[:, "labels"] = fsd_50k_triggers['labels'].apply(lambda x: mapping[str(x)]['foams_mapping'])
     return fsd_50k_triggers
 
 # Copy S
@@ -65,8 +66,15 @@ def save_metadata(meta_df: pd.DataFrame, target_path: str = "../data/metadata/fs
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--source_dir', type=str, required=True, help='Path to FSD50K audio files')
+    parser.add_argument('--target_dir', type=str, required=True, default="../data/FSD50K", help='Path to save filtered FSD50K audio files')
+    parser.add_argument('--metadata_path', type=str, required=True, default="../data/metadata/fsd50k_triggers_metadata.csv", help='Path to save filtered FSD50K metadata CSV')
+    parser.add_argument('--is_eval', type=bool, required=True, default=False, help='Generate samples from eval (True) or dev (False) set')
 
     args = parser.parse_args()
+
+    # Change metadata path if eval set is chosen.
+    if args.is_eval:
+        fsd50k_metadata = "../data/metadata/FSD50K.metadata/collection/collection_eval.csv"
 
     print("Loading FSD50K metadata...")
     fsd_50k = load_fsd50k(fsd50k_metadata)
@@ -78,7 +86,7 @@ if __name__ == "__main__":
     print(f"Number of trigger samples found: {fsd_50k_triggers.shape[0]}")
 
     print("Copying trigger samples...")
-    copy_samples(fsd_50k_triggers, source_dir=args.source_dir, target_dir="../data/FSD50K")
+    copy_samples(fsd_50k_triggers, source_dir=args.source_dir, target_dir=args.target_dir)
 
     print("Saving metadata...")
-    save_metadata(fsd_50k_triggers, target_path="../data/metadata/fsd50k_triggers_metadata.csv")
+    save_metadata(fsd_50k_triggers, target_path=args.metadata_path)

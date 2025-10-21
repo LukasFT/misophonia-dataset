@@ -33,6 +33,7 @@ def esc50_triggers(esc50: pd.DataFrame, mapping: dict) -> pd.DataFrame:
     """
     trigger_classes = [k for k in mapping.keys()]
     esc50_triggers = esc50[esc50["category"].isin(trigger_classes)]
+    esc50_triggers.loc[:, "category"] = esc50_triggers["category"].apply(lambda x: mapping[str(x)]["foams_mapping"])
     return esc50_triggers
 
 
