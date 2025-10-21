@@ -64,7 +64,7 @@ const welcomePage = {
 const consent_instructions_page = {
   type: jsPsychSurveyHtmlForm,
   data: {
-    trial_name: "consent_instructions_page"
+    trial_name: "consent_instructions"
   },
   dataAsArray: true,
   preamble: `
@@ -84,7 +84,7 @@ const consent_instructions_page = {
 const demographics_page = {
   type: jsPsychSurveyHtmlForm,
   data: {
-      trial_name: "demographics_page"
+      trial_name: "demographics"
   },
   dataAsArray: true,
   preamble: '<p>Information about you</p>',
@@ -115,45 +115,85 @@ const demographics_page = {
 };
 
 
-const dmq_likert_scale = [
-  "Strongly Disagree",
-  "Disagree",
-  "Neutral",
-  "Agree",
-  "Strongly Agree"
+// From https://psychiatry.duke.edu/duke-center-misophonia-and-emotion-regulation/resources/resources-clinicians-researchers
+const dmqIntro = `
+The following questions refer to the experience of being intensely bothered by a sound or sounds, even when they are not overly loud. These can be human or non-human sounds, or the sight of someone or something making a sound that you can't hear (e.g., the sight of someone biting their nails from across the room).
+`
+
+const dmqLikertScale = [
+  "Never",
+  "Rarely",
+  "Sometimes",
+  "Often",
+  "Always/almost always"
 ];
 
-const dmq_quiestions = [
-  "Some question 1",
-  "Some question 2",
-  "Some question 3",
-  "Some question 4",
-  "Some question 5",
-  "Some question 6",
-  "Some question 7",
-  "Some question 8",
-  "Some question 9",
-  "Some question 10",
-]
 
-const dmq_page = {
+const dmqInstructionCognitive = "In the past month on average, when intensely bothered by a sound or sounds, please rate how often you had each of the following thoughts.";
+const dmqQuestionsCognitive = [
+  "I am helpless",
+  "I want to cry",
+  "How do I make this sound stop?",
+  "Everything is awful.",
+  "I cannot handle this",
+  "I need to get away from the sound.",
+  "I would do anything to make it stop.",
+  "I thought about screaming at, yelling at, or telling off the person making the sound.",
+  "I thought about pushing, poking, shoving, etc. the person making the sound.",
+  "I thought about physically hurting the person making the sound.",
+];
+
+
+const dmqInstructionPhysiological = "In the past month on average, when intensely bothered by a sound or sounds, please rate how often each of the following happened to you.";
+const dmqQuestionsPhysiological = [
+  "I became rigid or stiff.",
+  "I trembled or shuddered.",
+  "My heart pounded or raced.",
+  "I started breathing intensely or forcefully.",
+  "I reflexively jumped.",
+];
+
+
+
+const dmqInstructionAffective = "In the past month on average, when intensely bothered by a sound or sounds, please rate how often you felt each of the following:";
+const dmqQuestionsAffective = [
+  "I felt angry.",
+  "I felt anxious.",
+  "I felt disgusted.",
+  "I felt panic.",
+  "I felt hostile.",
+  "I felt jittery.",
+  "I felt frustrated.",
+];
+
+const dmqPage = {
   type: jsPsychSurveyLikert,
   data: {
-      trial_name: "dmq_page"
+      trial_name: "dmq",
+      dmq_subscale: jsPsych.timelineVariable("subscale")
   },
-  preamble: `
-    <h1>Misophonia Assessment</h1>
-    <p>Please indicate your level of agreement with the following questions.</p>
+  preamble: () => `
+    <p class="dmq-intro">${dmqIntro}</p>
+    <p><b>${jsPsych.evaluateTimelineVariable("instructions")}</b></p>
   `,
-  questions: dmq_quiestions.map(question => {
+  questions: () => jsPsych.evaluateTimelineVariable("questions").map(question => {
     return {
       prompt: question,
       name: question,
-      labels: dmq_likert_scale,
+      labels: dmqLikertScale,
       required: true
     };
   }),
   randomize_question_order: false
+};
+
+const dmqProcedure = {
+  timeline: [dmqPage],
+  timeline_variables: [
+    { subscale: "affective", instructions: dmqInstructionAffective, questions: dmqQuestionsAffective },
+    { subscale: "physiological", instructions: dmqInstructionPhysiological, questions: dmqQuestionsPhysiological },
+    { subscale: "cognitive", instructions: dmqInstructionCognitive, questions: dmqQuestionsCognitive },
+  ]
 };
 
 
@@ -170,6 +210,77 @@ const stimulusPresentPage = {
 };
 
 
+
+const makeTriggerCategoryFieldset = (triggerCategories, legend) => `
+  <fieldset class="rating-fieldset" style="margin-top:2rem;" aria-labelledby="cat-legend">
+    <legend class="rating-legend" id="cat-legend">
+      ${legend}
+    </legend>
+
+    <p class="rating-hint">Select one or more options.</p>
+
+    <input type="hidden" name="trigger_categories" id="trigger-categories-hidden" required />
+    <input type="text" id="trigger-categories" name="trigger_categories" required autocomplete="off" class="visually-hidden-validator" />
+
+    <div class="rating-stack" role="group" aria-label="Sound category (choose one or more)">
+      ${triggerCategories.map((cat, i) => {
+        const id = `cat-${i}`;
+        const isNone = cat === "None of the above";
+        return `
+          <div class="rating-option">
+            <input class="rating-input category-input" type="checkbox"
+                    id="${id}" value="${cat}" data-none="${isNone ? '1' : '0'}" />
+            <label class="rating-label" for="${id}">
+              <span class="rating-text">${cat}</span>
+            </label>
+          </div>`;
+      }).join("")}
+    </div>
+  </fieldset>
+`;
+const triggerCategoryOnLoad = () => {
+  const hidden = document.getElementById('trigger-categories');
+  const boxes = Array.from(document.querySelectorAll('.category-input'));
+  const noneBox = boxes.find(b => b.dataset.none === '1');
+
+  function syncState(changed) {
+    // Enforce “None of the above” mutual exclusivity
+    if (changed && changed === noneBox && noneBox.checked) {
+      boxes.forEach(b => { if (b !== noneBox) b.checked = false; });
+    } else if (changed && changed !== noneBox && changed.checked) {
+      if (noneBox) noneBox.checked = false;
+    }
+
+    // Collect selected values
+    const selected = boxes.filter(b => b.checked).map(b => b.value);
+
+    // Required: at least one selected
+    if (selected.length === 0) {
+      hidden.value = "";
+      hidden.setCustomValidity("Please select at least one category.");
+    } else {
+      hidden.value = JSON.stringify(selected); // saved as a JSON array string
+      hidden.setCustomValidity("");
+    }
+  }
+
+  boxes.forEach(b => b.addEventListener('change', () => syncState(b)));
+  // Initialize validity on page load
+  syncState(null);
+}
+
+const triggerDeclarePage = {
+  type: jsPsychSurveyHtmlForm,
+  data: {
+    trial_name: "trigger_declaration",
+  },
+  preamble: `
+    <p class="dmq-intro">${dmqIntro}</p>
+  `,
+  html: makeTriggerCategoryFieldset(triggerCategories.concat(["Others", "None of the above"]), "Select the sounds and/or sights that bother you much more intensely than they do most other people."),
+  on_load: triggerCategoryOnLoad,
+};
+
 const stimulusRatingButtons = [
   { label: "5", color: "#e20001" },
   { label: "4", color: "#e25800" },
@@ -181,7 +292,7 @@ const stimulusRatingButtons = [
 const stimulusRatePage = {
   type: jsPsychSurveyHtmlForm,
   data: {
-    trial_name: "stimuli_rate_page",
+    trial_name: "stimulus_rating",
     stimulus_id: jsPsych.timelineVariable("stimulus_id"),
     wav_url: jsPsych.timelineVariable("wav_url")
   },
@@ -215,62 +326,9 @@ const stimulusRatePage = {
     </fieldset>
 
 
-    <fieldset class="rating-fieldset" style="margin-top:2rem;" aria-labelledby="cat-legend">
-      <legend class="rating-legend" id="cat-legend">
-        Which of the following categories did the sound you just heard belong to?
-      </legend>
-
-      <p class="rating-hint">Select one or more options.</p>
-
-      <input type="hidden" name="trigger_categories" id="trigger-categories-hidden" required />
-      <input type="text" id="trigger-categories" name="trigger_categories" required autocomplete="off" class="visually-hidden-validator" />
-
-      <div class="rating-stack" role="group" aria-label="Sound category (choose one or more)">
-        ${triggerCategories.concat(["None of the above"]).map((cat, i) => {
-          const id = `cat-${i}`;
-          const isNone = cat === "None of the above";
-          return `
-            <div class="rating-option">
-              <input class="rating-input category-input" type="checkbox"
-                     id="${id}" value="${cat}" data-none="${isNone ? '1' : '0'}" />
-              <label class="rating-label" for="${id}">
-                <span class="rating-text">${cat}</span>
-              </label>
-            </div>`;
-        }).join("")}
-      </div>
-    </fieldset>
+    ${makeTriggerCategoryFieldset(triggerCategories.concat(["None of the above"]), "Which of the following categories did the sound you just heard belong to?")}
   `,
-  on_load: () => {
-    const hidden = document.getElementById('trigger-categories');
-    const boxes = Array.from(document.querySelectorAll('.category-input'));
-    const noneBox = boxes.find(b => b.dataset.none === '1');
-
-    function syncState(changed) {
-      // Enforce “None of the above” mutual exclusivity
-      if (changed && changed === noneBox && noneBox.checked) {
-        boxes.forEach(b => { if (b !== noneBox) b.checked = false; });
-      } else if (changed && changed !== noneBox && changed.checked) {
-        if (noneBox) noneBox.checked = false;
-      }
-
-      // Collect selected values
-      const selected = boxes.filter(b => b.checked).map(b => b.value);
-
-      // Required: at least one selected
-      if (selected.length === 0) {
-        hidden.value = "";
-        hidden.setCustomValidity("Please select at least one category.");
-      } else {
-        hidden.value = JSON.stringify(selected); // saved as a JSON array string
-        hidden.setCustomValidity("");
-      }
-    }
-
-    boxes.forEach(b => b.addEventListener('change', () => syncState(b)));
-    // Initialize validity on page load
-    syncState(null);
-  }
+  on_load: triggerCategoryOnLoad,
 };
 
 
@@ -281,6 +339,14 @@ const thanksPage = {
     do_not_save: true,
   },
   func: async () => {
+    const dmqScore = jsPsych
+          .data.get().filter({trial_name: "dmq"}).trials
+          .map(t => t.response)
+          .reduce((s, o) => s + Object.values(o).reduce((a, v) => a + v, 0), 0);
+    const dmqScaleCutoff = 42; // From Rosenthal et al., 2021
+
+    console.log(`DMQ total score: ${dmqScore}`);
+
     window.onbeforeunload = null; // Disable the warning on unload
     const getShareLink = () => {
       const code = window.jatos.studyCode;
@@ -300,7 +366,15 @@ const thanksPage = {
           Copy
         </button>
       </div>
+
+      <p>
+        The questions you answered ${dmqScore >= dmqScaleCutoff ? "indicate" : "do not indicate"} that you have higher misophonia symptoms severity (DMQ Symptom Severity score of ${dmqScore}).
+
+        <a href="https://psychiatry.duke.edu/duke-center-misophonia-and-emotion-regulation/resources/resources-sufferers-loved-ones" target="_blank">Read more on the Duke Center for Misophonia and Emotion Regulation</a>.
       </p>
+
+
+      <p>You can now close this window. You will not be able to see this page or do the study again.</p>
     </div>
     `;
     const copyBtn = document.getElementById('copy-btn');
@@ -412,11 +486,17 @@ window.jatos.onLoad(async () => {
 
   const firstAnchor = {
     timeline: stimulusProcedureTimeline,
+    data: {
+      is_first_anchor: true,
+    },
     timeline_variables: stimuli.filter(s => s.anchor_position === "first"),
   };
 
   const secondAnchor = {
     timeline: stimulusProcedureTimeline,
+    data: {
+      is_second_anchor: true,
+    },
     timeline_variables: stimuli.filter(s => s.anchor_position === "last"),
   };
 
@@ -424,95 +504,18 @@ window.jatos.onLoad(async () => {
     preloadWelcome,
     welcomePage,
     consent_instructions_page,
-    // demographics_page,
-    // dmq_page,
+    demographics_page,
+    triggerDeclarePage,
+    dmqProcedure,
     firstAnchor,
     stimulusProcedure,
     secondAnchor,
     thanksPage
   ];
-  // drip save
+
   jsPsych.run(timeline);
 
 });
 
 
 
-
-// // Minimal timeline example with per-trial append + resume via Study Session data
-
-// // ----- deterministic RNG helpers (for rebuild on reload) -----
-// function hashToInt(str) {
-//   let h = 2166136261 >>> 0;
-//   for (let i = 0; i < str.length; i++) {
-//     h ^= str.charCodeAt(i);
-//     h = Math.imul(h, 16777619);
-//   }
-//   return h >>> 0;
-// }
-// function mulberry32(a) {
-//   return function () {
-//     let t = (a += 0x6D2B79F5);
-//     t = Math.imul(t ^ (t >>> 15), t | 1);
-//     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-//     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-//   };
-// }
-// function shuffleWithRng(array, rng) {
-//   const arr = array.slice();
-//   for (let i = arr.length - 1; i > 0; i--) {
-//     const j = Math.floor(rng() * (i + 1));
-//     [arr[i], arr[j]] = [arr[j], arr[i]];
-//   }
-//   return arr;
-// }
-
-// // ----- jsPsych init with per-trial append -----
-// const jsPsych = initJsPsych({
-//   display_element: "jspsych-root",
-//   on_data_update: (trialData) => {
-//     // Append only the new trial's data (small payload)
-//     return jatos.appendResultData(JSON.stringify(trialData));
-//   }
-// });
-
-// // ----- Build (or rebuild) the timeline after JATOS is ready -----
-// jatos.onLoad(async () => {
-//   // Initialize session progress and seed on first load
-//   if (!jatos.studySessionData || !jatos.studySessionData.progress) {
-//     jatos.studySessionData = {
-//       progress: { trial_index: 0 },
-//       seed: Math.random().toString(36).slice(2)
-//     };
-//     await jatos.setStudySessionData(jatos.studySessionData);
-//   }
-
-//   // Deterministic ordering with seed so we can reconstruct on reload
-//   const rng = mulberry32(hashToInt(jatos.studySessionData.seed));
-
-//   // Example stimuli; replace with your trials
-//   const baseTrials = [
-//     { type: "html-button-response", stimulus: "<p>Screen 1</p>", choices: ["Next"] },
-//     { type: "html-button-response", stimulus: "<p>Screen 2</p>", choices: ["Next"] },
-//     { type: "html-button-response", stimulus: "<p>Screen 3</p>", choices: ["Finish"] }
-//   ];
-
-//   const timelineOrdered = shuffleWithRng(baseTrials, rng);
-
-//   // Resume from last completed trial index
-//   const startAt = jatos.studySessionData.progress.trial_index || 0;
-//   const remaining = timelineOrdered.slice(startAt);
-
-//   // After each trial finishes, bump the cursor and persist session data
-//   jsPsych.pluginAPI.registerPreload("html-button-response", "stimulus", "html");
-//   jsPsych.options.on_trial_finish = async () => {
-//     jatos.studySessionData.progress.trial_index = (jatos.studySessionData.progress.trial_index || 0) + 1;
-//     await jatos.setStudySessionData(jatos.studySessionData);
-//   };
-
-//   await jsPsych.run(remaining);
-
-//   // Finalize (optional: submit a final aggregate snapshot)
-//   await jatos.appendResultData(JSON.stringify({ finalized: true, ntrials: timelineOrdered.length }));
-//   await jatos.endStudy();
-// });

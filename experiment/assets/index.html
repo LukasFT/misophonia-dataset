@@ -16,9 +16,17 @@
 
     <link rel="stylesheet" type="text/css" href="https://unpkg.com/jspsych@8.2.2/css/jspsych.css" />
     <style type="text/css">
-      /* .jspsych-content {
-        margin: 20px;
-      } */
+      .jspsych-content {
+        padding: 20px;
+      }
+
+      /* --- DMQ --- */
+      .dmq-intro {
+        font-size: 0.9rem;
+        line-height: 1.2rem;
+        color: grey;
+        font-style: italic;
+      }
 
       /* --- Ratings --- */
       /* Container */
@@ -106,7 +114,6 @@
 
       .visually-hidden-validator {
         position: absolute !important;
-        left: -9999px !important;
         width: 1px !important;
         height: 1px !important;
         opacity: 0 !important;
@@ -121,6 +128,7 @@
       Please wait while the study is loading ...
     </div>
     <div id="jspsych-root"></div>
+
     <script src="app.js"></script>
   </body>
 
