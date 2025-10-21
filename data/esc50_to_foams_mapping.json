@@ -1,17 +1,17 @@
 {
-    "breathing": {"foams_mapping":
-        "human_breathing"
+    "breathing": {
+        "foams_mapping":"human_breathing"
     },
-    "coughing": {"foams_mapping":
-        "clearing_throat"
+    "coughing": {
+        "foams_mapping":"clearing_throat"
     },
-    "keyboard_typing": {"foams_mapping":
-        "typing"
+    "keyboard_typing": {
+        "foams_mapping":"typing"
     },
-    "water_drops": {"foams_mapping":
-        "water_drops"
+    "water_drops": {
+        "foams_mapping":"water_drops"
     },
-    "drinking_sipping": {"foams_mapping":
-        "swallowing"
+    "drinking_sipping": {
+        "foams_mapping":"swallowing"
     }
 }
