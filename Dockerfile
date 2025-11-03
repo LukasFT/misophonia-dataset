@@ -8,13 +8,19 @@ ARG USER_UID=1000
 ARG USER_GID=1000
 
 # Install OS dependencies
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+ENV TZ=Etc/UTC
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
+    # Configure localization
+    && apt-get install -y --no-install-recommends tzdata \
+    && ln -fs /usr/share/zoneinfo/$TZ /etc/localtime \
+    && dpkg-reconfigure -f noninteractive tzdata \
+    # Install dependencies
     && apt-get install -y \
-      # * Base:
-      # ** See https://stackoverflow.com/a/78786560
-      language-pack-en-base \
       # * Build:
       curl \
+      # Needed for R:
       ca-certificates \
       # * Dev:
       git \
@@ -23,7 +29,6 @@ RUN apt-get update \
     # * Remove apt cache to reduce image size
     && rm -rf /var/lib/apt/lists/*
 
-# RUN ln -s /usr/bin/python3.11 /usr/bin/python
 
 # Create a non-root user called app and switch to it
 RUN groupadd -g $USER_GID app && useradd -u $USER_UID -g $USER_GID -m app
