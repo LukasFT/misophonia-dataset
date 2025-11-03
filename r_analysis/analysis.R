@@ -15,17 +15,27 @@ if (length(args) > 0) {
 }
 
 data <- read.csv(path)
+M_trials <- 12 # Used to center the order
+foams_ratio = 0.2 # Used to check data balance
 
-required_columns <- c("rating", "subject_uuid", "pair_uuid", "is_trig", "is_declared_trig", "order", "is_foams", "did_identify", "category")
+required_columns <- c("rating", "subject_uuid", "pair_uuid", "is_trig", "is_declared_trig", "order", "is_foams", "category")
 missing_columns <- setdiff(required_columns, colnames(data))
 if (length(missing_columns) > 0) {
   stop(paste("Missing required columns:", paste(missing_columns, collapse = ", ")))
 }
 
 
-# print("=== Debug data ===")
-# decl_share <- with(data, tapply(is_declared_trig_pair, subject_uuid, mean))
-# mean(decl_share); summary(decl_share)
+
+
+print("=== Debug data ===")
+print("Number of trials per subject (assumed):")
+print(M_trials)
+print("Expected FOAMS ratio:")
+print(foams_ratio)
+print("Data head")
+print(head(data))
+decl_share <- with(data, tapply(is_declared_trig_pair, subject_uuid, mean))
+mean(decl_share); summary(decl_share)
 
 
 
@@ -35,18 +45,19 @@ cat("\n=== Linear mixed model (REML) ===\n")
 
 # gmc <- function(x, g) x - ave(x, g, FUN = mean)   # group-mean center
 
+data$order_centered <- data$order - (M_trials + 1) / 2
+
 m <- with(
   data,
   lmer(
-    rating ~ 
+    rating ~
       # Fixed effects:
-      is_trig 
+      is_trig
       + is_declared_trig
-      + did_identify 
-      + I(order - 1)
+      + order_centered
       + is_foams
       # Random effects:
-      + (1 + is_trig || subject_uuid) 
+      + (1 + is_trig || subject_uuid)
       + (1 + is_trig || pair_uuid)
       ,
     data = data,
@@ -80,104 +91,76 @@ if (length(m@optinfo$conv$lme4) || length(m@optinfo$conv$opt)) {
 }
 
 
-# # ---- ESTIMANDS VIA lmerTest::contest (with full-length L) --------------------
-# # Build a full-length contrast in the model's coefficient order
-# .expand_L <- function(model, L_named) {
-#   beta_names <- names(fixef(model))
-#   L_full <- setNames(rep(0, length(beta_names)), beta_names)
-#   unknown <- setdiff(names(L_named), beta_names)
-#   if (length(unknown)) stop(paste("Unknown coefficient(s):", paste(unknown, collapse=", ")))
-#   L_full[names(L_named)] <- as.numeric(L_named)
-#   matrix(as.numeric(L_full), nrow = 1, dimnames = list(NULL, beta_names))
-# }
+# --- ESTIMANDS ----------------------------------------------------------------
+# We compute:
+#   Delta_personal = beta_isTrig + beta_isDeclaredTrig + phi * beta_isFOAMS
+#   Delta_global   = beta_isTrig + psi * beta_isDeclaredTrig + phi * beta_isFOAMS
+# where:
+#   phi = proportion of trigger trials that are FOAMS-sourced in the dataset
+#   psi = share of trigger trials that belong to a subject's declared categories (empirical)
 
-# # Pull denominator df from contest()'s ANOVA-like output
-# .get_den_df <- function(ct) {
-#   df_tab <- as.data.frame(ct)
-#   cn <- tolower(colnames(df_tab))
-#   j <- which(grepl("den", cn) & grepl("df", cn))
-#   if (!length(j)) stop("Could not parse denominator df from contest()")
-#   as.numeric(df_tab[1, j[1]])
-# }
+cat("\n=== Estimands (personalized and global) ===\n")
 
-# .do_contrast <- function(model, L_named, name, alpha = 0.05) {
-#   L <- .expand_L(model, L_named)
-#   beta <- fixef(model)
-#   V <- vcov(model)  # covariance of fixed effects
-#   est <- as.numeric(L %*% beta)
-#   se  <- sqrt(as.numeric(L %*% V %*% t(L)))
+# Safeguards for division by zero if no trigger trials present
+n_trig <- sum(data$is_trig == 1, na.rm = TRUE)
+if (n_trig == 0) {
+  stop("No trigger trials (is_trig==1) found; cannot compute psi or estimands.")
+}
 
-#   # Satterthwaite df via lmerTest::contest
-#   ct <- contest(model, L = L, joint = FALSE)
-#   df <- .get_den_df(ct)
+psi_hat <- with(data, sum(is_trig == 1 & is_declared_trig == 1, na.rm = TRUE) / n_trig)
 
-#   tval <- est / se
-#   p    <- 2 * pt(abs(tval), df = df, lower.tail = FALSE)
-#   crit <- qt(0.975, df)
-#   lo   <- est - crit * se
-#   hi   <- est + crit * se
+cat(sprintf("phi (FOAMS share among trigger trials)  = %.4f\n", foams_ratio))
+cat(sprintf("psi (Declared share among trigger trials)= %.4f\n", psi_hat))
 
-#   data.frame(contrast = name, estimate = est, SE = se, df = df,
-#              t = tval, p = p, lower.CL = lo, upper.CL = hi,
-#              meets_0_25 = abs(est) >= 0.25,
-#              row.names = NULL)
-# }
+# Pull fixed effects and covariance
+beta <- fixef(m)
+V <- vcov(m)
 
-# # --- Three contrasts of interest ---
-# ctr_df <- do.call(rbind, list(
-#   .do_contrast(m, c(is_trig = 1),                       "undeclared_vs_control"),
-#   .do_contrast(m, c(is_declared_trig = 1),              "declared_minus_undeclared"),
-#   .do_contrast(m, c(is_trig = 1, is_declared_trig = 1), "declared_vs_control")
-# ))
+# Ensure required coefficients exist
+needed <- c("(Intercept)", "is_trig", "is_declared_trig", "order_centered", "is_foams")
+missing_beta <- setdiff(needed, names(beta))
+if (length(missing_beta) > 0) {
+  stop(paste("Model is missing fixed effects needed for estimands:", paste(missing_beta, collapse = ", ")))
+}
 
-# cat("\n=== Key contrasts (Satterthwaite df) ===\n")
-# print(ctr_df)
+# Build contrast vectors aligned to beta's order
+L_zero <- setNames(rep(0, length(beta)), names(beta))
 
-# # # ---- ESTIMANDS VIA EMMEANS ---------------------------------------------------
-# # # We want:
-# # #  1) Undeclared trigger vs control:   (is_trig=1, is_declared_trig=0) - (0,0)
-# # #  2) Declared trigger vs control:     (1,1) - (0,0)
-# # #  3) Declared minus Undeclared:       (1,1) - (1,0)
-# # #
-# # # Other covariates are held at their observed means (population-level prediction).
+L_personal <- L_zero
+L_personal["is_trig"] <- 1
+L_personal["is_declared_trig"] <- 1
+L_personal["is_foams"] <- foams_ratio
 
-# # rg <- ref_grid(
-# #   m,
-# #   at = list(
-# #     is_trig = c(0, 1),
-# #     is_declared_trig = c(0, 1),
-# #     did_identify = mean(data$did_identify, na.rm = TRUE),
-# #     order = mean(data$order, na.rm = TRUE),
-# #     is_foams = mean(data$is_foams, na.rm = TRUE)
-# #   ),
-# #   cov.reduce = mean
-# # )
+L_global <- L_zero
+L_global["is_trig"] <- 1
+L_global["is_declared_trig"] <- psi_hat
+L_global["is_foams"] <- foams_ratio
 
-# # emm <- emmeans(rg, ~ is_trig * is_declared_trig)
+# Helper to compute estimate, SE, CI, p-value via Wald normal
+wald_from_L <- function(L, beta, V, level = 0.95) {
+  est <- sum(L * beta)
+  se <- sqrt(as.numeric(t(L) %*% V %*% L))
+  z <- ifelse(se > 0, est / se, NA_real_)
+  alpha <- 1 - level
+  zcrit <- qnorm(1 - alpha/2)
+  ci_lo <- est - zcrit * se
+  ci_hi <- est + zcrit * se
+  p <- ifelse(is.na(z), NA_real_, 2 * pnorm(-abs(z)))
+  list(est = est, se = se, ci_lo = ci_lo, ci_hi = ci_hi, p = p)
+}
 
-# # # Build contrasts robustly by row-matching (no reliance on ordering assumptions)
-# # emm_df <- as.data.frame(emm)
-# # I <- diag(nrow(emm))
+res_personal <- wald_from_L(L_personal, beta, V, level = 0.95)
+res_global   <- wald_from_L(L_global,   beta, V, level = 0.95)
 
-# # pick <- function(trig, decl) I[which(emm_df$is_trig == trig & emm_df$is_declared_trig == decl), , drop = FALSE]
+# Pretty print results
+fmt_row <- function(name, res) {
+  sprintf(
+    "%-18s  est = %.4f, SE = %.4f, 95%% CI [%.4f, %.4f], p = %.4g",
+    name, res$est, res$se, res$ci_lo, res$ci_hi, res$p
+  )
+}
 
-# # L <- rbind(
-# #   undeclared_vs_control       = pick(1, 0) - pick(0, 0),  # global baseline trigger effect
-# #   declared_vs_control         = pick(1, 1) - pick(0, 0),  # personalized total effect
-# #   declared_minus_undeclared   = pick(1, 1) - pick(1, 0)   # incremental personalization
-# # )
+cat("\n--- Point estimates (Wald, treating psi as fixed) ---\n")
+cat(fmt_row("Delta_personal", res_personal), "\n")
+cat(fmt_row("Delta_global",   res_global),   "\n")
 
-# # ctr <- contrast(emm, L, adjust = "none")
-
-# # cat("\n=== Key contrasts (Satterthwaite df via lmerTest) ===\n")
-# # print(ctr)
-# # cat("\n=== 95% CIs for contrasts ===\n")
-# # print(confint(ctr, level = 0.95))
-
-# # # Practical significance flagging (threshold = 0.25 points)
-# # thr <- 0.25
-# # ctr_df <- as.data.frame(ctr)
-# # ctr_df$meets_0_25 <- abs(ctr_df$estimate) >= thr
-
-# # cat("\n=== Practical significance check (|effect| >= 0.25) ===\n")
-# # print(ctr_df[, c("contrast", "estimate", "SE", "df", "t.ratio", "p.value", "meets_0_25")])
