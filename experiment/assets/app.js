@@ -112,7 +112,7 @@ const demographics_page = {
     </select>
     <br><br>
   `
-};
+}; // TODO: Add country
 
 
 // From https://psychiatry.duke.edu/duke-center-misophonia-and-emotion-regulation/resources/resources-clinicians-researchers
@@ -205,7 +205,7 @@ const stimulusPresentPage = {
     },
     stimulus: jsPsych.timelineVariable("wav_url"),
     trial_duration: 30000,
-    choices: ['Sound is too uncofortable, stop playback'],
+    choices: ['Sound is too uncomfortable, stop playback'],
     prompt: "<p>Close your eyes and listen to the sound.</p>"
 };
 
