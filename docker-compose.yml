@@ -51,7 +51,7 @@ services:
       - ACME_AGREE=true
       - EMAIL=lukt@itu.dk
     volumes:
-      - ./data/experiment/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./experiment/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/experiment-caddy-data:/data
       - ./data/experiment-caddy-config:/config
     depends_on:
