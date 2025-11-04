@@ -339,14 +339,6 @@ const thanksPage = {
     do_not_save: true,
   },
   func: async () => {
-    const dmqScore = jsPsych
-          .data.get().filter({trial_name: "dmq"}).trials
-          .map(t => t.response)
-          .reduce((s, o) => s + Object.values(o).reduce((a, v) => a + v, 0), 0);
-    const dmqScaleCutoff = 42; // From Rosenthal et al., 2021
-
-    console.log(`DMQ total score: ${dmqScore}`);
-
     window.onbeforeunload = null; // Disable the warning on unload
     const getShareLink = () => {
       const code = window.jatos.studyCode;
@@ -368,9 +360,7 @@ const thanksPage = {
       </div>
 
       <p>
-        The questions you answered ${dmqScore >= dmqScaleCutoff ? "indicate" : "do not indicate"} that you have higher misophonia symptoms severity (DMQ Symptom Severity score of ${dmqScore}).
-
-        <a href="https://psychiatry.duke.edu/duke-center-misophonia-and-emotion-regulation/resources/resources-sufferers-loved-ones" target="_blank">Read more on the Duke Center for Misophonia and Emotion Regulation</a>.
+        <a href="https://psychiatry.duke.edu/duke-center-misophonia-and-emotion-regulation/resources/resources-sufferers-loved-ones" target="_blank">Read more about Misophonia on Duke Center for Misophonia and Emotion Regulation</a>.
       </p>
 
 
