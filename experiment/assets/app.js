@@ -1,20 +1,20 @@
 const stimuliAB = {
   A: [
-    { stimulus_id: "phrases2b20" },
+    { stimulusId: "phrases2b20" },
 
-    { stimulus_id: "Haircut16-44p1-2", anchor_position: "first" },
-    { stimulus_id: "Haircut16-44p1", anchor_position: "last" }
+    { stimulusId: "Haircut16-44p1-2", anchorPosition: "first" },
+    { stimulusId: "Haircut16-44p1", anchorPosition: "last" }
   ],
   B: [
-    { stimulus_id: "phrases2b20" },
+    { stimulusId: "phrases2b20" },
 
-    { stimulus_id: "Haircut16-44p1", anchor_position: "last" },
-    { stimulus_id: "Haircut16-44p1", anchor_position: "first" }
+    { stimulusId: "Haircut16-44p1", anchorPosition: "last" },
+    { stimulusId: "Haircut16-44p1", anchorPosition: "first" }
   ],
 };
 Object.values(stimuliAB).forEach(g => {
   g.forEach(s => {
-    s.wav_url = `sounds/${s.stimulus_id}.wav`
+    s.wavUrl = `sounds/${s.stimulusId}.wav`
   });
 });
 
@@ -30,8 +30,8 @@ window.onbeforeunload = function() {
     return "Are you sure you want to leave? Your progress will NOT be saved.";
 }
 
-const on_data_update = (data) => {
-  if (data.do_not_save) return; // skip non-essential data
+const onDataUpdate = (data) => {
+  if (data.doNotSave) return; // skip non-essential data
   const jsonData = JSON.stringify(data);
   console.log(`Data updated: ${jsonData}`);
 
@@ -41,7 +41,7 @@ const on_data_update = (data) => {
 
 const jsPsych = initJsPsych({
   show_progress_bar: true,
-  on_data_update: on_data_update,
+  on_data_update: onDataUpdate,
 });
 
 const welcomeHtml = `
@@ -55,16 +55,16 @@ const welcomeHtml = `
 const welcomePage = {
   type: jsPsychHtmlButtonResponse,
   data: {
-    do_not_save: true,
+    doNotSave: true,
   },
   stimulus: welcomeHtml,
   choices: ["Continue"],
 };
 
-const consent_instructions_page = {
+const consentInstructionsPage = {
   type: jsPsychSurveyHtmlForm,
   data: {
-    trial_name: "consent_instructions"
+    trialName: "consentInstructions"
   },
   dataAsArray: true,
   preamble: `
@@ -81,10 +81,10 @@ const consent_instructions_page = {
   `
 };
 
-const demographics_page = {
+const demographicsPage = {
   type: jsPsychSurveyHtmlForm,
   data: {
-      trial_name: "demographics"
+      trialName: "demographics"
   },
   dataAsArray: true,
   preamble: '<p>Information about you</p>',
@@ -169,8 +169,8 @@ const dmqQuestionsAffective = [
 const dmqPage = {
   type: jsPsychSurveyLikert,
   data: {
-      trial_name: "dmq",
-      dmq_subscale: jsPsych.timelineVariable("subscale")
+      trialName: "dmq",
+      dmqSubscale: jsPsych.timelineVariable("subscale")
   },
   preamble: () => `
     <p class="dmq-intro">${dmqIntro}</p>
@@ -200,10 +200,10 @@ const dmqProcedure = {
 const stimulusPresentPage = {
     type: jsPsychAudioButtonResponse,
     data: {
-      trial_name: "stimuli_presentation",
-      stimulus_id: jsPsych.timelineVariable("stimulus_id")
+      trialName: "stimuliPresentation",
+      stimulusId: jsPsych.timelineVariable("stimulusId")
     },
-    stimulus: jsPsych.timelineVariable("wav_url"),
+    stimulus: jsPsych.timelineVariable("wavUrl"),
     trial_duration: 30000,
     choices: ['Sound is too uncomfortable, stop playback'],
     prompt: "<p>Close your eyes and listen to the sound.</p>"
@@ -272,7 +272,7 @@ const triggerCategoryOnLoad = () => {
 const triggerDeclarePage = {
   type: jsPsychSurveyHtmlForm,
   data: {
-    trial_name: "trigger_declaration",
+    trialName: "triggerDeclaration",
   },
   preamble: `
     <p class="dmq-intro">${dmqIntro}</p>
@@ -292,9 +292,9 @@ const stimulusRatingButtons = [
 const stimulusRatePage = {
   type: jsPsychSurveyHtmlForm,
   data: {
-    trial_name: "stimulus_rating",
-    stimulus_id: jsPsych.timelineVariable("stimulus_id"),
-    wav_url: jsPsych.timelineVariable("wav_url")
+    trialName: "stimulusRating",
+    stimulusId: jsPsych.timelineVariable("stimulusId"),
+    wavUrl: jsPsych.timelineVariable("wavUrl")
   },
   html: () =>  `
     <fieldset class="rating-fieldset">
@@ -335,8 +335,8 @@ const stimulusRatePage = {
 const thanksPage = {
   type: jsPsychCallFunction,
   data: {
-    trial_name: "thanks_page",
-    do_not_save: true,
+    trialName: "thanks",
+    doNotSave: true,
   },
   func: async () => {
     window.onbeforeunload = null; // Disable the warning on unload
@@ -456,10 +456,10 @@ window.jatos.onLoad(async () => {
   const preloadWelcome = {
     type: jsPsychPreload,
     data: {
-      do_not_save: true,
+      doNotSave: true,
     },
     auto_preload: false, // specify files manually
-    audio: stimuli.map(s => s.wav_url),
+    audio: stimuli.map(s => s.wavUrl),
     // continue_after_error: true, // There is an error with this when errors occur ...
     message: `
     ${welcomeHtml}
@@ -471,30 +471,30 @@ window.jatos.onLoad(async () => {
   const stimulusProcedure = {
     timeline: stimulusProcedureTimeline,
     randomize_order: true,
-    timeline_variables: stimuli.filter(s => !s.anchor_position),
+    timeline_variables: stimuli.filter(s => !s.anchorPosition),
   };
 
   const firstAnchor = {
     timeline: stimulusProcedureTimeline,
     data: {
-      is_first_anchor: true,
+      isFirstAnchor: true,
     },
-    timeline_variables: stimuli.filter(s => s.anchor_position === "first"),
+    timeline_variables: stimuli.filter(s => s.anchorPosition === "first"),
   };
 
   const secondAnchor = {
     timeline: stimulusProcedureTimeline,
     data: {
-      is_second_anchor: true,
+      isSecondAnchor: true,
     },
-    timeline_variables: stimuli.filter(s => s.anchor_position === "last"),
+    timeline_variables: stimuli.filter(s => s.anchorPosition === "last"),
   };
 
   const timeline = [
     preloadWelcome,
     welcomePage,
-    consent_instructions_page,
-    demographics_page,
+    consentInstructionsPage,
+    demographicsPage,
     triggerDeclarePage,
     dmqProcedure,
     firstAnchor,
