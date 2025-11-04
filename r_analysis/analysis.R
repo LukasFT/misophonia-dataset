@@ -93,11 +93,11 @@ if (length(m@optinfo$conv$lme4) || length(m@optinfo$conv$opt)) {
 
 # --- ESTIMANDS ----------------------------------------------------------------
 # We compute:
-#   Delta_personal = beta_isTrig + beta_isDeclaredTrig + phi * beta_isFOAMS
-#   Delta_global   = beta_isTrig + psi * beta_isDeclaredTrig + phi * beta_isFOAMS
+#   Delta_personal = beta_isTrig + beta_isDeclaredTrig + foams_ratio * beta_isFOAMS
+#   Delta_global   = beta_isTrig + psi_hat * beta_isDeclaredTrig + foams_ratio * beta_isFOAMS
 # where:
-#   phi = proportion of trigger trials that are FOAMS-sourced in the dataset
-#   psi = share of trigger trials that belong to a subject's declared categories (empirical)
+#   foams_ratio = proportion of trigger trials that are FOAMS-sourced in the dataset (defined in the top)
+#   psi_hat = share of trigger trials that belong to a subject's declared categories (empirical)
 
 cat("\n=== Estimands (personalized and global) ===\n")
 
@@ -109,58 +109,77 @@ if (n_trig == 0) {
 
 psi_hat <- with(data, sum(is_trig == 1 & is_declared_trig == 1, na.rm = TRUE) / n_trig)
 
-cat(sprintf("phi (FOAMS share among trigger trials)  = %.4f\n", foams_ratio))
-cat(sprintf("psi (Declared share among trigger trials)= %.4f\n", psi_hat))
+print(paste("Estimated psi (share of declared triggers among trigger trials):", round(psi_hat, 4)))
+print(paste("Foams ratio (phi):", round(foams_ratio, 4))) # defined in the top
 
-# Pull fixed effects and covariance
+# Fixed-effects order
+beta_names <- names(fixef(m))
+p <- length(beta_names)
+
+# Helper: build a full-length named contrast row aligned to beta_names
+L_row <- function(weights_named) {
+  L <- setNames(rep(0, p), beta_names)
+  for (nm in names(weights_named)) {
+    if (!nm %in% beta_names) {
+      stop(sprintf("Contrast references unknown coefficient: '%s'", nm))
+    }
+    L[nm] <- weights_named[[nm]]
+  }
+  # return as 1xP matrix
+  matrix(L, nrow = 1, dimnames = list(NULL, beta_names))
+}
+
+# Define contrasts for the estimands
+L_personal <- L_row(c(
+  "is_trig" = 1,
+  "is_declared_trig" = 1,
+  "is_foams" = foams_ratio
+))
+L_global <- L_row(c(
+  "is_trig" = 1,
+  "is_declared_trig" = psi_hat,
+  "is_foams" = foams_ratio
+))
+
+# Test each estimand using Satterthwaite df
+res_personal <- contest(m, L_personal)
+res_global   <- contest(m, L_global)
+
+
+cat("\n--- Personalized estimand ---\n")
+print(res_personal)
+
+cat("\n--- Global estimand ---\n")
+print(res_global)
+
+# Also compute formatted summaries with estimate, SE, df, CI, p
 beta <- fixef(m)
-V <- vcov(m)
+V    <- as.matrix(vcov(m))
 
-# Ensure required coefficients exist
-needed <- c("(Intercept)", "is_trig", "is_declared_trig", "order_centered", "is_foams")
-missing_beta <- setdiff(needed, names(beta))
-if (length(missing_beta) > 0) {
-  stop(paste("Model is missing fixed effects needed for estimands:", paste(missing_beta, collapse = ", ")))
+summ_from_L <- function(L, res_from_contest, level = 0.95) {
+  est <- as.numeric(L %*% beta)
+  se  <- sqrt(as.numeric(L %*% V %*% t(L)))
+  # Try to read denominator df from contest() output
+  den_df <- suppressWarnings({
+    if ("Den Df" %in% colnames(res_from_contest)) {
+      as.numeric(res_from_contest[1, "Den Df"])
+    } else if ("den.df" %in% names(res_from_contest)) {
+      as.numeric(res_from_contest$den.df[1])
+    } else NA_real_
+  })
+  tcrit <- qt(1 - (1 - level)/2, df = den_df)
+  ci_lo <- est - tcrit * se
+  ci_hi <- est + tcrit * se
+  tval  <- est / se
+  pval  <- 2 * pt(abs(tval), df = den_df, lower.tail = FALSE)
+  list(est = est, se = se, df = den_df, lo = ci_lo, hi = ci_hi, p = pval)
 }
 
-# Build contrast vectors aligned to beta's order
-L_zero <- setNames(rep(0, length(beta)), names(beta))
+rp <- summ_from_L(L_personal, res_personal)
+rg <- summ_from_L(L_global,   res_global)
 
-L_personal <- L_zero
-L_personal["is_trig"] <- 1
-L_personal["is_declared_trig"] <- 1
-L_personal["is_foams"] <- foams_ratio
-
-L_global <- L_zero
-L_global["is_trig"] <- 1
-L_global["is_declared_trig"] <- psi_hat
-L_global["is_foams"] <- foams_ratio
-
-# Helper to compute estimate, SE, CI, p-value via Wald normal
-wald_from_L <- function(L, beta, V, level = 0.95) {
-  est <- sum(L * beta)
-  se <- sqrt(as.numeric(t(L) %*% V %*% L))
-  z <- ifelse(se > 0, est / se, NA_real_)
-  alpha <- 1 - level
-  zcrit <- qnorm(1 - alpha/2)
-  ci_lo <- est - zcrit * se
-  ci_hi <- est + zcrit * se
-  p <- ifelse(is.na(z), NA_real_, 2 * pnorm(-abs(z)))
-  list(est = est, se = se, ci_lo = ci_lo, ci_hi = ci_hi, p = p)
-}
-
-res_personal <- wald_from_L(L_personal, beta, V, level = 0.95)
-res_global   <- wald_from_L(L_global,   beta, V, level = 0.95)
-
-# Pretty print results
-fmt_row <- function(name, res) {
-  sprintf(
-    "%-18s  est = %.4f, SE = %.4f, 95%% CI [%.4f, %.4f], p = %.4g",
-    name, res$est, res$se, res$ci_lo, res$ci_hi, res$p
-  )
-}
-
-cat("\n--- Point estimates (Wald, treating psi as fixed) ---\n")
-cat(fmt_row("Delta_personal", res_personal), "\n")
-cat(fmt_row("Delta_global",   res_global),   "\n")
-
+cat("\n=== Estimands (formatted; Satterthwaite) ===\n")
+cat(sprintf("Delta_personal: est = %.4f, SE = %.4f, df = %.1f, 95%% CI [%.4f, %.4f], p = %.4g\n",
+            rp$est, rp$se, rp$df, rp$lo, rp$hi, rp$p))
+cat(sprintf("Delta_global:   est = %.4f, SE = %.4f, df = %.1f, 95%% CI [%.4f, %.4f], p = %.4g\n",
+            rg$est, rg$se, rg$df, rg$lo, rg$hi, rg$p))
