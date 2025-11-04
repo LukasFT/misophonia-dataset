@@ -1,7 +1,6 @@
 services:
   # Your main application:
   app: &app
-
     build:
       context: .
       dockerfile: ./Dockerfile
@@ -11,6 +10,7 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - .:/app
+      - ./data:/data
 
   # If you need to run your application with GPU/CUDA support:
   # > docker-compose up --profile=gpu
@@ -51,8 +51,16 @@ services:
       - ACME_AGREE=true
       - EMAIL=lukt@itu.dk
     volumes:
-      - ./experiment/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./experiment-caddy-data:/data
-      - ./experiment-caddy-config:/config
+      - ./data/experiment/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/experiment-caddy-data:/data
+      - ./data/experiment-caddy-config:/config
     depends_on:
       - experiment-jatos
+
+
+  r-analysis:
+    build: ./r_analysis
+    volumes:
+      - ./r_analysis:/app
+      - ./data:/data
+
