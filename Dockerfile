@@ -20,8 +20,10 @@ RUN apt-get update \
     && apt-get install -y \
       # * Build:
       curl \
-      # Needed for R:
+      # General:
       ca-certificates \
+      # Torch audio dependencies:
+      ffmpeg \
       # * Dev:
       git \
       bash \
