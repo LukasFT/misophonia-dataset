@@ -8,7 +8,7 @@ const stimuliAB = {
   B: [
     { stimulusId: "phrases2b20" },
 
-    { stimulusId: "Haircut16-44p1", anchorPosition: "last" },
+    { stimulusId: "Haircut16-44p1-2", anchorPosition: "last" },
     { stimulusId: "Haircut16-44p1", anchorPosition: "first" }
   ],
 };
@@ -30,7 +30,31 @@ window.onbeforeunload = function() {
     return "Are you sure you want to leave? Your progress will NOT be saved.";
 }
 
-const onDataUpdate = (data) => {
+
+const getStudyState = async (key, defaultValue) => {
+  const state = window.jatos.studySessionData || {};
+  if (!(key in state)) {
+    return defaultValue;
+  }
+  return state[key];
+};
+
+const setStudyState = async (key, callback) => {
+  const state = window.jatos.studySessionData || {};
+  state[key] = callback(state[key]);
+  await window.jatos.setStudySessionData(state);
+}
+
+const onDataUpdate = async (data) => {
+  await setStudyState("completed", x => {
+    const l = x || [];
+    const newCompleted = {
+      trialName: data.trialName,
+      repitionIdentifierVariable: data.repitionIdentifierVariable || null,
+      repitionIdentifier: data.repitionIdentifierVariable ? data[data.repitionIdentifierVariable] : null,
+    }
+    return l.concat([newCompleted]);
+  });
   if (data.doNotSave) return; // skip non-essential data
   const jsonData = JSON.stringify(data);
   console.log(`Data updated: ${jsonData}`);
@@ -56,6 +80,7 @@ const welcomePage = {
   type: jsPsychHtmlButtonResponse,
   data: {
     doNotSave: true,
+    trialName: "welcome",
   },
   stimulus: welcomeHtml,
   choices: ["Continue"],
@@ -170,7 +195,8 @@ const dmqPage = {
   type: jsPsychSurveyLikert,
   data: {
       trialName: "dmq",
-      dmqSubscale: jsPsych.timelineVariable("subscale")
+      subscale: jsPsych.timelineVariable("subscale"),
+      repitionIdentifierVariable: "subscale",
   },
   preamble: () => `
     <p class="dmq-intro">${dmqIntro}</p>
@@ -187,21 +213,54 @@ const dmqPage = {
   randomize_question_order: false
 };
 
-const dmqProcedure = {
-  timeline: [dmqPage],
-  timeline_variables: [
-    { subscale: "affective", instructions: dmqInstructionAffective, questions: dmqQuestionsAffective },
-    { subscale: "physiological", instructions: dmqInstructionPhysiological, questions: dmqQuestionsPhysiological },
-    { subscale: "cognitive", instructions: dmqInstructionCognitive, questions: dmqQuestionsCognitive },
-  ]
+const includeIfNotCompleted = async (trial) => {
+  const completed = await getStudyState("completed", []);
+  if (trial.data?.repitionIdentifierVariable) {
+    throw new Error("includeIfNotCompleted cannot handle trials with repitionIdentifierVariable. Use generateMissingProcedure instead.");
+  }
+  const isCompleted = completed.find(c => c.trialName === trial.data?.trialName);
+  return Boolean(isCompleted) ? [] : [trial];
 };
 
+const filterForMissing = async (allItems, timeline) => { 
+  const timelineDetails = timeline.map(t => ({ trialName: t.data?.trialName, repitionIdentifierVariable: t.data?.repitionIdentifierVariable || null }));
+  const completed = await getStudyState("completed", []);
+  // Filter out items that have already been completed for all timeline entries
+  return allItems.filter(item => {
+    const alreadyCompleted = timelineDetails.every(td => {
+      return completed.find(c => {
+        return c.trialName === td.trialName &&
+               c.repitionIdentifierVariable === td.repitionIdentifierVariable &&
+               (td.repitionIdentifierVariable === null || c.repitionIdentifier === item[td.repitionIdentifierVariable]);
+      });
+    });
+    return !Boolean(alreadyCompleted);
+  });
+}
+
+const generateDMQProcedure = async () => {
+  const dmqTimeline = [dmqPage];
+  const missingDMQ = await filterForMissing( [
+      { subscale: "affective", instructions: dmqInstructionAffective, questions: dmqQuestionsAffective },
+      { subscale: "physiological", instructions: dmqInstructionPhysiological, questions: dmqQuestionsPhysiological },
+      { subscale: "cognitive", instructions: dmqInstructionCognitive, questions: dmqQuestionsCognitive },
+    ], dmqTimeline);
+  if (missingDMQ.length === 0) {
+    return [];
+  }
+  return [{
+      timeline: dmqTimeline,
+      timeline_variables: missingDMQ,
+  }];
+    
+};
 
 const stimulusPresentPage = {
     type: jsPsychAudioButtonResponse,
     data: {
       trialName: "stimuliPresentation",
-      stimulusId: jsPsych.timelineVariable("stimulusId")
+      stimulusId: jsPsych.timelineVariable("stimulusId"),
+      repitionIdentifierVariable: "stimulusId",
     },
     stimulus: jsPsych.timelineVariable("wavUrl"),
     trial_duration: 30000,
@@ -294,6 +353,7 @@ const stimulusRatePage = {
   data: {
     trialName: "stimulusRating",
     stimulusId: jsPsych.timelineVariable("stimulusId"),
+    repitionIdentifierVariable: "stimulusId",
     wavUrl: jsPsych.timelineVariable("wavUrl")
   },
   html: () =>  `
@@ -331,6 +391,8 @@ const stimulusRatePage = {
   on_load: triggerCategoryOnLoad,
 };
 
+const stimulusProcedureTimeline = [stimulusPresentPage, stimulusRatePage];
+
 
 const thanksPage = {
   type: jsPsychCallFunction,
@@ -364,7 +426,7 @@ const thanksPage = {
       </p>
 
 
-      <p>You can now close this window. You will not be able to see this page or do the study again.</p>
+      <p>You can now close this window.</p>
     </div>
     `;
     const copyBtn = document.getElementById('copy-btn');
@@ -384,7 +446,7 @@ const thanksPage = {
     });
 
     await window.jatos.appendResultData(JSON.stringify({ finalized: true }));
-    await window.jatos.endStudyWithoutRedirect();
+    // await window.jatos.endStudyWithoutRedirect();
 
   }
 };
@@ -426,14 +488,13 @@ const ensureConditionAB = async () => {
     await jatos.batchSession.replace(`/counts/${condition}`, next);
   };
 
-  // If already in Study Session, reuse it
-  const ss = jatos.studySessionData || {};
-  if (ss.condition) {
-    console.log(`Reusing existing condition from Study Session: ${ss.condition}`);
-    return ss.condition;
-  }
+  let condition = await getStudyState("condition", null);
 
-  let condition;
+  if (condition) {
+    console.log(`Reusing existing condition from Study Session: ${condition}`);
+    return condition;
+  }
+  
   try {
     condition = await calculateAssignment();
   } catch (e) {
@@ -442,24 +503,82 @@ const ensureConditionAB = async () => {
   }
   await commitAssignment(condition);
   console.log(`Assigned new condition: ${condition}`);
-  await jatos.setStudySessionData({ condition });
+  await setStudyState("condition", () => condition);
   return condition;
-}
+};
+
+// const getMissingStimuli = async (allStimuliForCondition) => {
+//   const completed = await getStudyState("completed", []);
+//   return allStimuliForCondition.filter(s => {
+//     const alreadyCompleted = completed.find(c => {
+//       return c.trialName === "stimulusRating" &&
+//              c.repitionIdentifier === s[c.repitionIdentifierVariable];
+//     });
+//     return !Boolean(alreadyCompleted);
+//   });
+// };
+
+
+
+const generateSimulusPresentation = async (missingStimuli) => {
+  const firstAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "first");
+  const lastAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "last");
+  const nonAnchorStimuli = missingStimuli.filter(s => !s.anchorPosition);
+  
+  const stimuliTimelinePart = [];
+
+  if (firstAnchorStimuli.length > 0) {
+    stimuliTimelinePart.push({
+      timeline: stimulusProcedureTimeline,
+      data: {
+        isFirstAnchor: true,
+      },
+      timeline_variables: firstAnchorStimuli,
+    });
+  }
+
+  if (nonAnchorStimuli.length > 0) {
+    stimuliTimelinePart.push({
+      timeline: stimulusProcedureTimeline,
+      randomize_order: true,
+      timeline_variables: nonAnchorStimuli,
+    });
+  }
+
+  if (lastAnchorStimuli.length > 0) {
+    stimuliTimelinePart.push({
+      timeline: stimulusProcedureTimeline,
+      data: {
+        isLastAnchor: true,
+      },
+      timeline_variables: lastAnchorStimuli,
+    });
+  }
+
+  return stimuliTimelinePart;
+};
+
 
 window.jatos.onLoad(async () => {
   console.log("JATOS is loaded");
   document.querySelector("#jatos-waiting-message").style.display = "none";
 
   const condition = await ensureConditionAB();
-  const stimuli = stimuliAB[condition];
+  const allStimuliForCondition = stimuliAB[condition];
+  const missingStimuli = await filterForMissing(allStimuliForCondition, stimulusProcedureTimeline);
+
+  console.log(`Total stimuli for condition:`, allStimuliForCondition);
+  console.log(`Completed stimuli:`, allStimuliForCondition.length - missingStimuli.length);
+  console.log(`Missing stimuli:`, missingStimuli);
 
   const preloadWelcome = {
     type: jsPsychPreload,
     data: {
       doNotSave: true,
+      trialName: "preloadWelcome",
     },
     auto_preload: false, // specify files manually
-    audio: stimuli.map(s => s.wavUrl),
+    audio: missingStimuli.map(s => s.wavUrl),
     // continue_after_error: true, // There is an error with this when errors occur ...
     message: `
     ${welcomeHtml}
@@ -467,39 +586,16 @@ window.jatos.onLoad(async () => {
     `,
 };
 
-  const stimulusProcedureTimeline = [stimulusPresentPage, stimulusRatePage];
-  const stimulusProcedure = {
-    timeline: stimulusProcedureTimeline,
-    randomize_order: true,
-    timeline_variables: stimuli.filter(s => !s.anchorPosition),
-  };
-
-  const firstAnchor = {
-    timeline: stimulusProcedureTimeline,
-    data: {
-      isFirstAnchor: true,
-    },
-    timeline_variables: stimuli.filter(s => s.anchorPosition === "first"),
-  };
-
-  const secondAnchor = {
-    timeline: stimulusProcedureTimeline,
-    data: {
-      isSecondAnchor: true,
-    },
-    timeline_variables: stimuli.filter(s => s.anchorPosition === "last"),
-  };
+  
 
   const timeline = [
-    preloadWelcome,
-    welcomePage,
-    consentInstructionsPage,
-    demographicsPage,
-    triggerDeclarePage,
-    dmqProcedure,
-    firstAnchor,
-    stimulusProcedure,
-    secondAnchor,
+    // preloadWelcome,
+    // welcomePage,
+    ...await includeIfNotCompleted(consentInstructionsPage),
+    ...await includeIfNotCompleted(demographicsPage),
+    ...await includeIfNotCompleted(triggerDeclarePage),
+    ...await generateDMQProcedure(),
+    ...await generateSimulusPresentation(missingStimuli),
     thanksPage
   ];
 
