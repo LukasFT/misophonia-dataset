@@ -27,7 +27,7 @@ const triggerCategories = [
 
 
 window.onbeforeunload = function() {
-    return "Are you sure you want to leave? Your progress will NOT be saved.";
+    return "Are you sure you want to leave? Some progress might be lost.";
 }
 
 
@@ -46,6 +46,14 @@ const setStudyState = async (key, callback) => {
 }
 
 const onDataUpdate = async (data) => {
+  // Save trial data unless marked otherwise (for analysis)
+  if (!data.doNotSave) {
+    const jsonData = JSON.stringify(data);
+    await window.jatos.appendResultData(jsonData);
+    console.log(`Data updated:`, jsonData);
+  }
+  
+  // Save progress for page reloading
   await setStudyState("completed", x => {
     const l = x || [];
     const newCompleted = {
@@ -55,11 +63,6 @@ const onDataUpdate = async (data) => {
     }
     return l.concat([newCompleted]);
   });
-  if (data.doNotSave) return; // skip non-essential data
-  const jsonData = JSON.stringify(data);
-  console.log(`Data updated: ${jsonData}`);
-
-  window.jatos.appendResultData(jsonData);
 };
 
 
@@ -68,22 +71,54 @@ const jsPsych = initJsPsych({
   on_data_update: onDataUpdate,
 });
 
-const welcomeHtml = `
-  <h1>Misophonia Study</h1>
-
-  <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec eros tellus, congue ut aliquet vel, ullamcorper ut ipsum. In hac habitasse platea dictumst. Curabitur auctor interdum nibh ut molestie. Pellentesque ac sapien nisi. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Curabitur sed sagittis dolor, id egestas felis. Maecenas sollicitudin id sapien sed accumsan. Sed molestie posuere molestie. Nam ac ipsum dapibus, vestibulum purus et, consequat quam. Nunc dictum felis non pharetra rhoncus. Sed nec rhoncus urna. Maecenas luctus tellus non metus consequat ornare. Fusce nec leo sem. Pellentesque lobortis sapien eu dui auctor porta. Vestibulum sagittis, ex eu suscipit bibendum, ante leo tincidunt risus, luctus ornare orci tellus id lorem. </p>
-`;
 
 
+const generatePreloadWelcome = async (missingStimuli) => {
+  const completed = await getStudyState("completed", []);
+  const isResumed = completed.length > 0;
+  const isDone = completed.find(c => c.trialName === "thanks");
+  if (isDone) {
+    return []; // No welcome if already completed
+  }
 
-const welcomePage = {
-  type: jsPsychHtmlButtonResponse,
-  data: {
-    doNotSave: true,
-    trialName: "welcome",
-  },
-  stimulus: welcomeHtml,
-  choices: ["Continue"],
+  const welcomeTimeline = [];
+
+  const welcomeHtml = `
+    <h1>Misophonia Study</h1>
+
+    ${isResumed ? `<p><i>Your previous progress has been restored. You will continue from where you left off.</i></p>` : ``}
+
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec eros tellus, congue ut aliquet vel, ullamcorper ut ipsum. In hac habitasse platea dictumst. Curabitur auctor interdum nibh ut molestie. Pellentesque ac sapien nisi. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Curabitur sed sagittis dolor, id egestas felis. Maecenas sollicitudin id sapien sed accumsan. Sed molestie posuere molestie. Nam ac ipsum dapibus, vestibulum purus et, consequat quam. Nunc dictum felis non pharetra rhoncus. Sed nec rhoncus urna. Maecenas luctus tellus non metus consequat ornare. Fusce nec leo sem. Pellentesque lobortis sapien eu dui auctor porta. Vestibulum sagittis, ex eu suscipit bibendum, ante leo tincidunt risus, luctus ornare orci tellus id lorem. </p>
+
+  `;
+
+  welcomeTimeline.push({
+      type: jsPsychPreload,
+      data: {
+        doNotSave: true,
+        trialName: "preloadWelcome",
+      },
+      auto_preload: false, // specify files manually
+      audio: missingStimuli.map(s => s.wavUrl),
+      // continue_after_error: true, // There is an error with this when errors occur ...
+      message: `
+      ${welcomeHtml}
+      <p>Loading experiment assets, please wait...</p>
+      `,
+  });
+
+  welcomeTimeline.push({
+    type: jsPsychHtmlButtonResponse,
+    data: {
+      doNotSave: true,
+      trialName: "welcome",
+    },
+    stimulus: welcomeHtml,
+    choices: [isResumed ? "Continue study" : "Begin study"],
+  });
+
+
+  return welcomeTimeline;
 };
 
 const consentInstructionsPage = {
@@ -398,7 +433,6 @@ const thanksPage = {
   type: jsPsychCallFunction,
   data: {
     trialName: "thanks",
-    doNotSave: true,
   },
   func: async () => {
     window.onbeforeunload = null; // Disable the warning on unload
@@ -559,6 +593,8 @@ const generateSimulusPresentation = async (missingStimuli) => {
 };
 
 
+
+
 window.jatos.onLoad(async () => {
   console.log("JATOS is loaded");
   document.querySelector("#jatos-waiting-message").style.display = "none";
@@ -571,26 +607,12 @@ window.jatos.onLoad(async () => {
   console.log(`Completed stimuli:`, allStimuliForCondition.length - missingStimuli.length);
   console.log(`Missing stimuli:`, missingStimuli);
 
-  const preloadWelcome = {
-    type: jsPsychPreload,
-    data: {
-      doNotSave: true,
-      trialName: "preloadWelcome",
-    },
-    auto_preload: false, // specify files manually
-    audio: missingStimuli.map(s => s.wavUrl),
-    // continue_after_error: true, // There is an error with this when errors occur ...
-    message: `
-    ${welcomeHtml}
-    <p>Loading experiment assets, please wait...</p>
-    `,
-};
+  
 
   
 
   const timeline = [
-    // preloadWelcome,
-    // welcomePage,
+    ...await generatePreloadWelcome(missingStimuli),
     ...await includeIfNotCompleted(consentInstructionsPage),
     ...await includeIfNotCompleted(demographicsPage),
     ...await includeIfNotCompleted(triggerDeclarePage),
