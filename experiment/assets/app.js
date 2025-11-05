@@ -32,18 +32,18 @@ const soundPlayingMp4 = `sound-playing.mp4`;
 const soundPlayingGif = `sound-playing.gif`;
 const privacyPolicyLink = `privacy.html`;
 
-const studyDescription = `
+
+const introBeforeConsentGivenHtml = `
+  <h1>Misophonia Study</h1>
   <p>Misophonia is a condition where specific everyday sounds, such as chewing and pen clicking, provoke strong discomfort.</p>
   <p>We are creating a dataset of sound mixes that can be used to develop noise-cancelling headphones that selectively filter out misophonia trigger sounds.</p>
   <p>By participating in this study and rating short audio clips, you will help validate this dataset so it can be openly released for anyone to build on.</p>
-`;
 
-const consentText = `
-  <h1>Instructions</h1>
+  <h2>Instructions</h2>
   <p>You start by answering a brief questionnaire and selecting which types of sounds trigger you. Then, we confirm that you are wearing headphones, or are listening through speakers in a quiet environment.</p>
   <p>You will then listen to and rate some sounds mixtures that may contain trigger sounds. You can skip any sound that is too uncomfortable.</p>
 
-  <h1>Consent</h1>
+  <h2>Consent</h2>
   <p>
     Your participation is voluntary, and you may skip sounds or withdraw at any time, without any consequences.
   </p>
@@ -54,12 +54,14 @@ const consentText = `
 `;
 const consentCheckText = `I am 18 years or older, I have read and understood the information provided, and I consent to participate voluntarily in this study.`;
 
+const introAfterConsentGivenHtml = `Your previous progress has been restored. You will continue from where you left off.`;
+
 
 
 const stimuliPresentationInstructionsHtml = `
   <h1>Get ready to listen</h1>  
-  <p>You will now hear a series of sounds. Please listen to each sound carefully. Some sounds might be triggering, but you always have the option to skip if they are too uncomfortable.</p>
-  <p>After each sound, you will be asked to rate the level of discomfort or anxiety you experienced while listening to it. You will also be asked to specify which sound or sounds you think you heard.</p>
+  <p>You will now hear a series of sound clips. Please listen to each carefully. Some sounds might be triggering, but you always have the option to skip if they are too uncomfortable.</p>
+  <p>After each sound, you will be asked to rate the level of discomfort or anxiety you experienced while listening to it. You will also be asked to select which sound or sounds you think you heard.</p>
 `;
 
 const copyrightCredits = `
@@ -221,7 +223,7 @@ const soundPlayingHtml = `
 `;
 const generatePreloadWelcome = async (missingStimuli) => {
   const completed = await getStudyState("completed", []);
-  const isResumed = completed.length > 0;
+  const hasConsent = completed.find(c => c.trialName === "consent");
   const isDone = completed.find(c => c.trialName === "thanks");
   if (isDone) {
     return []; // No welcome if already completed
@@ -229,14 +231,9 @@ const generatePreloadWelcome = async (missingStimuli) => {
 
   const welcomeTimeline = [];
 
-  
   const welcomeHtml = `
     <div class="custom-content-container">
-      <h1>Misophonia Study</h1>
-
-      ${isResumed ? `<p><i>Your previous progress has been restored. You will continue from where you left off.</i></p>` : ``}
-
-      <p>${studyDescription}</p>
+      ${hasConsent ? introAfterConsentGivenHtml : introBeforeConsentGivenHtml}
     </div>
     <div style="max-height:1px;overflow:hidden;">
       ${soundPlayingHtml}
@@ -259,40 +256,29 @@ const generatePreloadWelcome = async (missingStimuli) => {
       `,
   });
 
-  welcomeTimeline.push({
-    type: jsPsychHtmlButtonResponse,
-    data: {
-      doNotSave: true,
-      trialName: "welcome",
-    },
-    stimulus: welcomeHtml,
-    choices: [isResumed ? "Continue study" : "Begin study"],
-  });
-
+  if (!hasConsent) {
+    welcomeTimeline.push({
+      type: jsPsychSurveyHtmlForm,
+      data: {
+        trialName: "consent"
+      },
+      dataAsArray: true,
+      preamble: `
+        <div class="custom-content-container">
+          ${welcomeHtml}
+        </div>
+      `,
+      html: `
+        <label style="font-weight: bold;">
+          <input type="checkbox" name="consent" value="yes" required>
+          ${consentCheckText}
+        </label>
+        <br><br>
+      `
+    });
+  }
 
   return welcomeTimeline;
-};
-
-
-/* === Consent === */
-const consentInstructionsPage = {
-  type: jsPsychSurveyHtmlForm,
-  data: {
-    trialName: "consent"
-  },
-  dataAsArray: true,
-  preamble: `
-    <div class="custom-content-container">
-      ${consentText}
-    </div>
-  `,
-  html: `
-    <label style="font-weight: bold;">
-      <input type="checkbox" name="consent" value="yes" required>
-      ${consentCheckText}
-    </label>
-    <br><br>
-  `
 };
 
 
@@ -623,7 +609,7 @@ const generateStimulusPresentation = async (missingStimuli) => {
           ${stimuliPresentationInstructionsHtml}
         </div>
       `,
-      choices: ["Continue"],
+      choices: ["Play sound"],
     });
   }
 
@@ -647,29 +633,31 @@ const thanksPage = {
     }
     const shareLink = getShareLink();
     document.querySelector("#jspsych-root").innerHTML = `
-    <div class="custom-content-container">
-      <h1>Thank You!</h1>
-      <p>Your participation is greatly appreciated.</p>
-      <p>If you would like to share this study with others, please share the following link:</p>
-      <div style="display:flex;gap:.5rem;align-items:center">
-        <input id="study-link" value="${shareLink}" style="flex:1;padding:.6rem;border:1px solid #ddd;border-radius:8px" readonly />
-        <button id="copy-btn" style="padding:.6rem 1rem;border:0;border-radius:8px;cursor:pointer">
-          Copy
-        </button>
-      </div>
+    <div class="jspsych-content">
+      <div class="custom-content-container">
+        <h1>Thank You!</h1>
+        <p>Your participation is greatly appreciated.</p>
+        <p>If you would like to share this study with others, please share the following link:</p>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <input id="study-link" value="${shareLink}" style="flex:1;padding:.6rem;border:1px solid #ddd;border-radius:8px" readonly />
+          <button id="copy-btn" style="padding:.6rem 1rem;border:0;border-radius:8px;cursor:pointer">
+            Copy
+          </button>
+        </div>
 
-      <p>
-        <a href="https://psychiatry.duke.edu/duke-center-misophonia-and-emotion-regulation/resources/resources-sufferers-loved-ones" target="_blank">Read more about Misophonia on Duke Center for Misophonia and Emotion Regulation</a>.
-      </p>
+        <p>
+          If you are interested in learning more about the condition, see <a href="https://psychiatry.duke.edu/duke-center-misophonia-and-emotion-regulation/resources/resources-sufferers-loved-ones" target="_blank">the list of resources made by the Duke Center for Misophonia and Emotion Regulation</a>.
+        </p>
 
-      <p>
-        ${contactInfo}
-      </p>
+        <p>
+          ${contactInfo}
+        </p>
 
-      <p>You can now close this window.</p>
+        <p>You can now close this window.</p>
 
-      <div class="copyright-credits">
-        ${copyrightCredits}
+        <div class="copyright-credits">
+          ${copyrightCredits}
+        </div>
       </div>
     </div>
     `;
@@ -709,7 +697,6 @@ window.jatos.onLoad(async () => {
 
   const timeline = [
     ...await generatePreloadWelcome(missingStimuli),
-    ...await includeIfNotCompleted(consentInstructionsPage),
     ...await includeIfNotCompleted(demographicsPage),
     ...await includeIfNotCompleted(triggerDeclarePage),
     ...await generateDMQProcedure(),
