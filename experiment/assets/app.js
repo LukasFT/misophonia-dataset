@@ -48,7 +48,7 @@ const introBeforeConsentGivenHtml = `
     Your participation is voluntary, and you may skip sounds or withdraw at any time, without any consequences.
   </p>
   <p>
-    Please read our <a href="${privacyPolicyLink}" target="_blank">Privacy Policy</a> describing how your data will be handled. Note that the data collected will be pseudonymized and made publicly available for anyone to use.
+    Please read our <a href="${privacyPolicyLink}" target="_blank">Privacy Policy</a> describing how your data will be handled. Note that the data collected will be anonymized and made publicly available for anyone to use.
   </p>
 
 `;
@@ -60,9 +60,8 @@ const introAfterConsentGivenHtml = `
 `;
 
 
-
 const stimuliPresentationInstructionsHtml = `
-  <h1>Get ready to listen</h1>  
+  <h1>Get ready to listen</h1>
   <p>You will now hear a series of sound clips. Please listen to each carefully. Some sounds might be triggering, but you always have the option to skip if they are too uncomfortable.</p>
   <p>After each sound, you will be asked to rate the level of discomfort or anxiety you experienced while listening to it. You will also be asked to select which sound or sounds you think you heard.</p>
 `;
@@ -76,6 +75,85 @@ const contactInfo = `
   Contact <a href="mailto:lukt@itu.dk">lukt@itu.dk</a> for any questions or concerns regarding this study. Also refer to our <a href="${privacyPolicyLink}" target="_blank">Privacy Policy</a>.
 `;
 
+
+
+/*
+*** ENSURE ONLY ONE RUN PER BROWSER; AND ONLY ONE BROWSER PER RUN ***
+*/
+const getShareLink = () => {
+  const code = window.jatos.studyCode;
+  const origin = window.location.origin;
+  return `${origin}/publix/${code}`;
+};
+
+const setCookie = (name, value, days) => {
+  const d = new Date();
+  d.setTime(d.getTime() + (days*24*60*60*1000));
+  const expires = "expires="+ d.toUTCString();
+  document.cookie = name + "=" + value + ";" + expires + ";path=/";
+};
+const getCookie = (name) => {
+  const cname = name + "=";
+  const decodedCookie = decodeURIComponent(document.cookie);
+  const ca = decodedCookie.split(';');
+  for(let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) == ' ') {
+      c = c.substring(1);
+    }
+    if (c.indexOf(cname) == 0) {
+      return c.substring(cname.length, c.length);
+    }
+  }
+  return null;
+};
+
+
+let hasEnsuredOneBrowserPerStudy = false;
+const ensureOneBrowserPerStudy = (sharePathname) => {
+  // This is essentially a way to change how JATOS behaves
+  // We want users to share the link they see in their browser with others, but the ones they share should get a new session
+  // And we want to ensure that each browser instance only participates once
+
+  if (hasEnsuredOneBrowserPerStudy) return;
+  hasEnsuredOneBrowserPerStudy = true;
+
+  const existingShareParam = (new URL(window.location.href)).searchParams.get("share");
+
+  // Current URL with query parameter share=shareLink (URL encoded)
+  const url = new URL(window.location.href);
+  url.searchParams.set("share", sharePathname);
+  window.history.replaceState({}, document.title, url.toString());
+
+  const cookieName = `${sharePathname}-instance`
+  const existing = getCookie(cookieName);
+  if (existing) {
+    if (existing !== window.location.pathname) {
+      // Redirect to the existing cookie URL
+      window.onbeforeunload = null;
+      window.location.href = existing;
+      return;
+    }
+  }
+  else {
+    if (existingShareParam) {
+      // Already have a share param, so it must come from another browser instance
+      window.onbeforeunload = null;
+      window.location.pathname = decodeURIComponent(existingShareParam);
+      return;
+    }
+    else {
+      // No share param, so must be new
+      setCookie(cookieName, window.location.pathname, 90);
+    }
+  }
+};
+
+if ((new URL(window.location.href)).searchParams.has("share")) {
+  ensureOneBrowserPerStudy((new URL(window.location.href)).searchParams.get("share"));
+}
+
+// console.log(`Share link for this study: ${getShareLink()}`);
 
 
 
@@ -98,17 +176,34 @@ const setStudyState = async (key, callback) => {
 }
 
 const appendResultJson = async (obj) => {
-  const jsonData = JSON.stringify(obj);
+  // Copy object
+  const objWithIDs = Object.assign({}, obj);
+  const ids  = {};
+  window.jatos.addJatosIds(ids);
+  objWithIDs.jatosIds = ids;
+  const jsonData = JSON.stringify(objWithIDs);
   await window.jatos.appendResultData(jsonData + "\n"); // Make data as JSONL
   console.log(`Appended result data:`, jsonData);
+}
+
+
+const crashWithError = (e) => {
+  console.error(e);
+  document.getElementById("jatos-error-message").style.display = "";
+  document.getElementById("jatos-error-details").innerText = e.toString();
+  window.onbeforeunload = null; // Disable the warning on unload
 }
 
 const onDataUpdate = async (data) => {
   // Save trial data unless marked otherwise (for analysis)
   if (!data.doNotSave) {
-    await appendResultJson(data);
+    try {
+      await appendResultJson(data);
+    } catch (e) {
+      crashWithError(Error("Failed to append result data:", e));
+    }
   }
-  
+
   // Save progress for page reloading
   await setStudyState("completed", x => {
     const l = x || [];
@@ -132,7 +227,7 @@ const includeIfNotCompleted = async (trial) => {
   return Boolean(isCompleted) ? [] : [trial];
 };
 
-const filterForMissing = async (allItems, timeline) => { 
+const filterForMissing = async (allItems, timeline) => {
   const timelineDetails = timeline.map(t => ({ trialName: t.data?.trialName, repitionIdentifierVariable: t.data?.repitionIdentifierVariable || null }));
   const completed = await getStudyState("completed", []);
   // Filter out items that have already been completed for all timeline entries
@@ -171,7 +266,7 @@ const ensureConditionAB = async () => {
   const commitAssignment = async (condition) => {
     const ts = Date.now();
     // Save to result data which will be analyzed in the end, use 'trialName' for compatibility with the other data
-    await appendResultJson({ trialName: "assignCondition", assignmentCondition: condition, assignmentTimestamp: ts }); 
+    await appendResultJson({ trialName: "assignCondition", assignmentCondition: condition, assignmentTimestamp: ts });
     await setStudyState("condition", () => condition);
 
     // Increment the bucket's count using replace
@@ -186,7 +281,7 @@ const ensureConditionAB = async () => {
     console.log(`Reusing existing condition from Study Session: ${condition}`);
     return condition;
   }
-  
+
   try {
     condition = await calculateAssignment();
   } catch (e) {
@@ -404,7 +499,7 @@ const generateDMQProcedure = async () => {
       timeline: dmqTimeline,
       timeline_variables: missingDMQ,
   }];
-    
+
 };
 
 
@@ -553,7 +648,7 @@ const stimulusRatePage = {
 
     ${
       makeTriggerCategoryFieldset(
-        triggerCategories.concat(["None of the above"]), 
+        triggerCategories.concat(["None of the above"]),
         "Which of the following categories did the sound you just heard belong to?"
       )
     }
@@ -568,7 +663,7 @@ const generateStimulusPresentation = async (missingStimuli) => {
   const firstAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "first");
   const lastAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "last");
   const nonAnchorStimuli = missingStimuli.filter(s => !s.anchorPosition);
-  
+
   const stimuliTimelinePart = [];
 
   if (firstAnchorStimuli.length > 0) {
@@ -628,12 +723,6 @@ const thanksPage = {
   },
   func: async () => {
     window.onbeforeunload = null; // Disable the warning on unload
-    const getShareLink = () => {
-      const code = window.jatos.studyCode;
-      const origin = window.location.origin;
-      return `${origin}/publix/${code}`;
-
-    }
     const shareLink = getShareLink();
     document.querySelector("#jspsych-root").innerHTML = `
     <div class="jspsych-content">
@@ -685,12 +774,14 @@ const thanksPage = {
 };
 
 
-/* 
+/*
 *** EXPERIMENT TIMELINE INITIALIZATION AND RUNNING THE EXPERIMENT ***
 */
 window.jatos.onLoad(async () => {
   console.log("JATOS is loaded");
   document.querySelector("#jatos-waiting-message").style.display = "none";
+  const shareLink = getShareLink();
+  ensureOneBrowserPerStudy((new URL(shareLink)).pathname);
 
   const condition = await ensureConditionAB();
   const allStimuliForCondition = stimuliAB[condition];
