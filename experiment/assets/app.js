@@ -28,16 +28,50 @@ const triggerCategories = [
   "Category D",
 ];
 
-const studyDescription = `
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec eros tellus, congue ut aliquet vel, ullamcorper ut ipsum. In hac habitasse platea dictumst. Curabitur auctor interdum nibh ut molestie. Pellentesque ac sapien nisi. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Curabitur sed sagittis dolor, id egestas felis. Maecenas sollicitudin id sapien sed accumsan. Sed molestie posuere molestie. Nam ac ipsum dapibus, vestibulum purus et, consequat quam. Nunc dictum felis non pharetra rhoncus. Sed nec rhoncus urna. Maecenas luctus tellus non metus consequat ornare. Fusce nec leo sem. Pellentesque lobortis sapien eu dui auctor porta. Vestibulum sagittis, ex eu suscipit bibendum, ante leo tincidunt risus, luctus ornare orci tellus id lorem.
-`;
-
 const soundPlayingMp4 = `sound-playing.mp4`;
 const soundPlayingGif = `sound-playing.gif`;
-const copyrightCredits = `
-Sound playing animation by <a href="https://iconscout.com/free-lottie-animation/free-headphone-animated-icon_13336964" target="_blank">
-Madness Stock on IconScout</a>.
+const privacyPolicyLink = `privacy.html`;
+
+const studyDescription = `
+  <p>Misophonia is a condition where specific everyday sounds, such as chewing and pen clicking, provoke strong discomfort.</p>
+  <p>We are creating a dataset of sound mixes that can be used to develop noise-cancelling headphones that selectively filter out misophonia trigger sounds.</p>
+  <p>By participating in this study and rating short audio clips, you will help validate this dataset so it can be openly released for anyone to build on.</p>
 `;
+
+const consentText = `
+  <h1>Instructions</h1>
+  <p>You start by answering a brief questionnaire and selecting which types of sounds trigger you. Then, we confirm that you are wearing headphones, or are listening through speakers in a quiet environment.</p>
+  <p>You will then listen to and rate some sounds mixtures that may contain trigger sounds. You can skip any sound that is too uncomfortable.</p>
+
+  <h1>Consent</h1>
+  <p>
+    Your participation is voluntary, and you may skip sounds or withdraw at any time, without any consequences.
+  </p>
+  <p>
+    Please read our <a href="${privacyPolicyLink}" target="_blank">Privacy Policy</a> for more details on how your data will be handled. Note that the data collected will be pseudonymized and made publicly available for anyone to use.
+  </p>
+
+`;
+const consentCheckText = `I am 18 years or older, I have read and understood the information provided, and I consent to participate voluntarily in this study.`;
+
+
+
+const stimuliPresentationInstructionsHtml = `
+  <h1>Get ready to listen</h1>  
+  <p>You will now hear a series of sounds. Please listen to each sound carefully. Some sounds might be triggering, but you always have the option to skip if they are too uncomfortable.</p>
+  <p>After each sound, you will be asked to rate the level of discomfort or anxiety you experienced while listening to it. You will also be asked to specify which sound or sounds you think you heard.</p>
+`;
+
+const copyrightCredits = `
+  Sound playing animation by <a href="https://iconscout.com/free-lottie-animation/free-headphone-animated-icon_13336964" target="_blank">
+  Madness Stock on IconScout</a>.
+`;
+
+const contactInfo = `
+  Contact <a href="mailto:lukt@itu.dk">lukt@itu.dk</a> for any questions or concerns regarding this study. Also refer to our <a href="${privacyPolicyLink}" target="_blank">Privacy Policy</a>.
+`;
+
+
 
 
 /*
@@ -197,14 +231,14 @@ const generatePreloadWelcome = async (missingStimuli) => {
 
   
   const welcomeHtml = `
-    <div>
+    <div class="custom-content-container">
       <h1>Misophonia Study</h1>
 
       ${isResumed ? `<p><i>Your previous progress has been restored. You will continue from where you left off.</i></p>` : ``}
 
       <p>${studyDescription}</p>
     </div>
-    <div style="display:none;">
+    <div style="max-height:1px;overflow:hidden;">
       ${soundPlayingHtml}
     </div>
   `; // Adding the sound playing html means it will be preloaded
@@ -244,18 +278,18 @@ const generatePreloadWelcome = async (missingStimuli) => {
 const consentInstructionsPage = {
   type: jsPsychSurveyHtmlForm,
   data: {
-    trialName: "consentInstructions"
+    trialName: "consent"
   },
   dataAsArray: true,
   preamble: `
-  <h1>Misophonia Study</h1>
-  <p>Lorem ipsum ....</p>
-  <h1>Consent</h1>
+    <div class="custom-content-container">
+      ${consentText}
+    </div>
   `,
   html: `
-    <label>
+    <label style="font-weight: bold;">
       <input type="checkbox" name="consent" value="yes" required>
-      I am 18 years or older, I have read and understood the information provided, and I consent to participate in this study.
+      ${consentCheckText}
     </label>
     <br><br>
   `
@@ -535,6 +569,7 @@ const stimulusRatePage = {
       )
     }
   `,
+  button_label: "Play next sound",
   on_load: triggerCategoryOnLoad,
 };
 
@@ -575,6 +610,23 @@ const generateStimulusPresentation = async (missingStimuli) => {
     });
   }
 
+  if (stimuliTimelinePart.length > 0) {
+    // Add instructions before stimuli presentation
+    stimuliTimelinePart.unshift({
+      type: jsPsychHtmlButtonResponse,
+      data: {
+        doNotSave: true,
+        trialName: "stimuliInstructions",
+      },
+      stimulus: `
+        <div class="custom-content-container">
+          ${stimuliPresentationInstructionsHtml}
+        </div>
+      `,
+      choices: ["Continue"],
+    });
+  }
+
   return stimuliTimelinePart;
 };
 
@@ -595,7 +647,7 @@ const thanksPage = {
     }
     const shareLink = getShareLink();
     document.querySelector("#jspsych-root").innerHTML = `
-    <div style="max-width:600px;margin:2rem auto;font-family:sans-serif;">
+    <div class="custom-content-container">
       <h1>Thank You!</h1>
       <p>Your participation is greatly appreciated.</p>
       <p>If you would like to share this study with others, please share the following link:</p>
@@ -610,6 +662,9 @@ const thanksPage = {
         <a href="https://psychiatry.duke.edu/duke-center-misophonia-and-emotion-regulation/resources/resources-sufferers-loved-ones" target="_blank">Read more about Misophonia on Duke Center for Misophonia and Emotion Regulation</a>.
       </p>
 
+      <p>
+        ${contactInfo}
+      </p>
 
       <p>You can now close this window.</p>
 
