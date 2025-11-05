@@ -32,6 +32,13 @@ const studyDescription = `
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec eros tellus, congue ut aliquet vel, ullamcorper ut ipsum. In hac habitasse platea dictumst. Curabitur auctor interdum nibh ut molestie. Pellentesque ac sapien nisi. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Curabitur sed sagittis dolor, id egestas felis. Maecenas sollicitudin id sapien sed accumsan. Sed molestie posuere molestie. Nam ac ipsum dapibus, vestibulum purus et, consequat quam. Nunc dictum felis non pharetra rhoncus. Sed nec rhoncus urna. Maecenas luctus tellus non metus consequat ornare. Fusce nec leo sem. Pellentesque lobortis sapien eu dui auctor porta. Vestibulum sagittis, ex eu suscipit bibendum, ante leo tincidunt risus, luctus ornare orci tellus id lorem.
 `;
 
+const soundPlayingMp4 = `sound-playing.mp4`;
+const soundPlayingGif = `sound-playing.gif`;
+const copyrightCredits = `
+Sound playing animation by <a href="https://iconscout.com/free-lottie-animation/free-headphone-animated-icon_13336964" target="_blank">
+Madness Stock on IconScout</a>.
+`;
+
 
 /*
 *** HELPER FUNCTIONS USED FOR DEFINING THE EXPERIMENT TIMELINE ***
@@ -171,6 +178,13 @@ const jsPsych = initJsPsych({
 *** EXPERIMENT TIMELINE DEFINITIONS ***
 */
 /* Preload welcome message */
+const soundPlayingHtml = `
+  <p>Please listen to the sound playing</p>
+  <video nocontrols autoplay loop muted playsinline style="width:100%;height:auto;max-width: 12rem;">
+    <source src="${soundPlayingMp4}" type="video/mp4">
+    <img src="${soundPlayingGif}" alt="Sound playing animation">
+  </video>
+`;
 const generatePreloadWelcome = async (missingStimuli) => {
   const completed = await getStudyState("completed", []);
   const isResumed = completed.length > 0;
@@ -181,13 +195,19 @@ const generatePreloadWelcome = async (missingStimuli) => {
 
   const welcomeTimeline = [];
 
+  
   const welcomeHtml = `
-    <h1>Misophonia Study</h1>
+    <div>
+      <h1>Misophonia Study</h1>
 
-    ${isResumed ? `<p><i>Your previous progress has been restored. You will continue from where you left off.</i></p>` : ``}
+      ${isResumed ? `<p><i>Your previous progress has been restored. You will continue from where you left off.</i></p>` : ``}
 
-    <p>${studyDescription}</p>
-  `;
+      <p>${studyDescription}</p>
+    </div>
+    <div style="display:none;">
+      ${soundPlayingHtml}
+    </div>
+  `; // Adding the sound playing html means it will be preloaded
 
   welcomeTimeline.push({
       type: jsPsychPreload,
@@ -195,12 +215,13 @@ const generatePreloadWelcome = async (missingStimuli) => {
         doNotSave: true,
         trialName: "preloadWelcome",
       },
-      auto_preload: false, // specify files manually
+      auto_preload: false, // specify files manually below
       audio: missingStimuli.map(s => s.wavUrl),
-      // continue_after_error: true, // There is an error with this when errors occur ...
+      video: [soundPlayingMp4],
+      images: [soundPlayingGif],
       message: `
-      ${welcomeHtml}
-      <p>Loading experiment assets, please wait...</p>
+        ${welcomeHtml}
+        <p>Loading, please wait...</p>
       `,
   });
 
@@ -450,7 +471,14 @@ const stimulusPresentPage = {
     stimulus: jsPsych.timelineVariable("wavUrl"),
     trial_duration: 30000,
     choices: ['Sound is too uncomfortable, stop playback'],
-    prompt: "<p>Close your eyes and listen to the sound.</p>"
+    // Show soundPlayingMp4
+    prompt: `
+      <p>Please listen to the sound playing</p>
+      <video nocontrols autoplay loop muted playsinline style="width:100%;height:auto;max-width: 12rem;">
+        <source src="${soundPlayingMp4}" type="video/mp4">
+        <img src="${soundPlayingGif}" alt="Sound playing animation">
+      </video>
+    `
 };
 
 /* = Stimulus rating = */
@@ -584,6 +612,10 @@ const thanksPage = {
 
 
       <p>You can now close this window.</p>
+
+      <div class="copyright-credits">
+        ${copyrightCredits}
+      </div>
     </div>
     `;
     const copyBtn = document.getElementById('copy-btn');
