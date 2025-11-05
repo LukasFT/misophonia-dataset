@@ -51,12 +51,16 @@ const setStudyState = async (key, callback) => {
   await window.jatos.setStudySessionData(state);
 }
 
+const appendResultJson = async (obj) => {
+  const jsonData = JSON.stringify(obj);
+  await window.jatos.appendResultData(jsonData + "\n"); // Make data as JSONL
+  console.log(`Appended result data:`, jsonData);
+}
+
 const onDataUpdate = async (data) => {
   // Save trial data unless marked otherwise (for analysis)
   if (!data.doNotSave) {
-    const jsonData = JSON.stringify(data);
-    await window.jatos.appendResultData(jsonData);
-    console.log(`Data updated:`, jsonData);
+    await appendResultJson(data);
   }
   
   // Save progress for page reloading
@@ -108,9 +112,6 @@ const ensureConditionAB = async () => {
     if (!jatos.batchSession.defined("/counts")) {
       await jatos.batchSession.add("/counts", { A: 0, B: 0 });
     }
-    if (!jatos.batchSession.defined("/assignments")) {
-      await jatos.batchSession.add("/assignments", {});
-    }
   };
 
 
@@ -123,8 +124,10 @@ const ensureConditionAB = async () => {
   // Write assignment (with simple retry to handle rare race conditions)
   const commitAssignment = async (condition) => {
     const ts = Date.now();
-    // Write this worker's assignment
-    await jatos.batchSession.add(`/assignments/${jatos.workerId}`, { condition, ts });
+    // Save to result data which will be analyzed in the end, use 'trialName' for compatibility with the other data
+    await appendResultJson({ trialName: "assignCondition", assignmentCondition: condition, assignmentTimestamp: ts }); 
+    await setStudyState("condition", () => condition);
+
     // Increment the bucket's count using replace
     const freshCounts = jatos.batchSession.find("/counts") || { A: 0, B: 0 };
     const next = (freshCounts[condition] || 0) + 1;
@@ -146,7 +149,6 @@ const ensureConditionAB = async () => {
   }
   await commitAssignment(condition);
   console.log(`Assigned new condition: ${condition}`);
-  await setStudyState("condition", () => condition);
   return condition;
 };
 
