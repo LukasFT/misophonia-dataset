@@ -1,3 +1,6 @@
+/*
+*** CONTENT DEFINITIONS FOR THE EXPERIMENT ***
+*/
 const stimuliAB = {
   A: [
     { stimulusId: "phrases2b20" },
@@ -23,14 +26,17 @@ const triggerCategories = [
   "Category B",
   "Category C",
   "Category D",
-]
+];
+
+const studyDescription = `
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec eros tellus, congue ut aliquet vel, ullamcorper ut ipsum. In hac habitasse platea dictumst. Curabitur auctor interdum nibh ut molestie. Pellentesque ac sapien nisi. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Curabitur sed sagittis dolor, id egestas felis. Maecenas sollicitudin id sapien sed accumsan. Sed molestie posuere molestie. Nam ac ipsum dapibus, vestibulum purus et, consequat quam. Nunc dictum felis non pharetra rhoncus. Sed nec rhoncus urna. Maecenas luctus tellus non metus consequat ornare. Fusce nec leo sem. Pellentesque lobortis sapien eu dui auctor porta. Vestibulum sagittis, ex eu suscipit bibendum, ante leo tincidunt risus, luctus ornare orci tellus id lorem.
+`;
 
 
-window.onbeforeunload = function() {
-    return "Are you sure you want to leave? Some progress might be lost.";
-}
-
-
+/*
+*** HELPER FUNCTIONS USED FOR DEFINING THE EXPERIMENT TIMELINE ***
+*/
+/* === Study state management === */
 const getStudyState = async (key, defaultValue) => {
   const state = window.jatos.studySessionData || {};
   if (!(key in state)) {
@@ -66,13 +72,103 @@ const onDataUpdate = async (data) => {
 };
 
 
+/* === Page reload / already completed functionality === */
+const includeIfNotCompleted = async (trial) => {
+  const completed = await getStudyState("completed", []);
+  if (trial.data?.repitionIdentifierVariable) {
+    throw new Error("includeIfNotCompleted cannot handle trials with repitionIdentifierVariable. Use generateMissingProcedure instead.");
+  }
+  const isCompleted = completed.find(c => c.trialName === trial.data?.trialName);
+  return Boolean(isCompleted) ? [] : [trial];
+};
+
+const filterForMissing = async (allItems, timeline) => { 
+  const timelineDetails = timeline.map(t => ({ trialName: t.data?.trialName, repitionIdentifierVariable: t.data?.repitionIdentifierVariable || null }));
+  const completed = await getStudyState("completed", []);
+  // Filter out items that have already been completed for all timeline entries
+  return allItems.filter(item => {
+    const alreadyCompleted = timelineDetails.every(td => {
+      return completed.find(c => {
+        return c.trialName === td.trialName &&
+               c.repitionIdentifierVariable === td.repitionIdentifierVariable &&
+               (td.repitionIdentifierVariable === null || c.repitionIdentifier === item[td.repitionIdentifierVariable]);
+      });
+    });
+    return !Boolean(alreadyCompleted);
+  });
+};
+
+
+/* === Condition assignment (A/B balancing) === */
+const ensureConditionAB = async () => {
+  const jatos = window.jatos;
+
+  const createIfMissing = async () => {
+    // Prepare Batch Session structure if missing
+    if (!jatos.batchSession.defined("/counts")) {
+      await jatos.batchSession.add("/counts", { A: 0, B: 0 });
+    }
+    if (!jatos.batchSession.defined("/assignments")) {
+      await jatos.batchSession.add("/assignments", {});
+    }
+  };
+
+
+  // Compute balanced condition from current counts
+  const calculateAssignment = async () => {
+    const counts = jatos.batchSession.find("/counts");
+    return counts.A === counts.B ? (Math.random() < 0.5 ? "A" : "B") : counts.A < counts.B ? "A" : "B";
+  };
+
+  // Write assignment (with simple retry to handle rare race conditions)
+  const commitAssignment = async (condition) => {
+    const ts = Date.now();
+    // Write this worker's assignment
+    await jatos.batchSession.add(`/assignments/${jatos.workerId}`, { condition, ts });
+    // Increment the bucket's count using replace
+    const freshCounts = jatos.batchSession.find("/counts") || { A: 0, B: 0 };
+    const next = (freshCounts[condition] || 0) + 1;
+    await jatos.batchSession.replace(`/counts/${condition}`, next);
+  };
+
+  let condition = await getStudyState("condition", null);
+
+  if (condition) {
+    console.log(`Reusing existing condition from Study Session: ${condition}`);
+    return condition;
+  }
+  
+  try {
+    condition = await calculateAssignment();
+  } catch (e) {
+    await createIfMissing();
+    condition = await calculateAssignment();
+  }
+  await commitAssignment(condition);
+  console.log(`Assigned new condition: ${condition}`);
+  await setStudyState("condition", () => condition);
+  return condition;
+};
+
+
+/* === Initialize === */
+const isJATOS = typeof window.jatos !== "undefined";
+if (!isJATOS) {
+  alert("An error occurred while initializing the experiment. Please try again later. (Code: No JATOS)");
+}
+window.onbeforeunload = () => {
+    return "Are you sure you want to leave? Some progress might be lost.";
+};
 const jsPsych = initJsPsych({
   show_progress_bar: true,
   on_data_update: onDataUpdate,
 });
 
 
-
+/*
+*** EXPERIMENT TIMELINE DEFINITIONS ***
+*/
+/* Preload welcome message */
 const generatePreloadWelcome = async (missingStimuli) => {
   const completed = await getStudyState("completed", []);
   const isResumed = completed.length > 0;
@@ -88,8 +184,7 @@ const generatePreloadWelcome = async (missingStimuli) => {
 
     ${isResumed ? `<p><i>Your previous progress has been restored. You will continue from where you left off.</i></p>` : ``}
 
-    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec eros tellus, congue ut aliquet vel, ullamcorper ut ipsum. In hac habitasse platea dictumst. Curabitur auctor interdum nibh ut molestie. Pellentesque ac sapien nisi. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Curabitur sed sagittis dolor, id egestas felis. Maecenas sollicitudin id sapien sed accumsan. Sed molestie posuere molestie. Nam ac ipsum dapibus, vestibulum purus et, consequat quam. Nunc dictum felis non pharetra rhoncus. Sed nec rhoncus urna. Maecenas luctus tellus non metus consequat ornare. Fusce nec leo sem. Pellentesque lobortis sapien eu dui auctor porta. Vestibulum sagittis, ex eu suscipit bibendum, ante leo tincidunt risus, luctus ornare orci tellus id lorem. </p>
-
+    <p>${studyDescription}</p>
   `;
 
   welcomeTimeline.push({
@@ -121,6 +216,8 @@ const generatePreloadWelcome = async (missingStimuli) => {
   return welcomeTimeline;
 };
 
+
+/* === Consent === */
 const consentInstructionsPage = {
   type: jsPsychSurveyHtmlForm,
   data: {
@@ -141,6 +238,8 @@ const consentInstructionsPage = {
   `
 };
 
+
+/* === Demographics === */
 const demographicsPage = {
   type: jsPsychSurveyHtmlForm,
   data: {
@@ -175,10 +274,11 @@ const demographicsPage = {
 }; // TODO: Add country
 
 
+/* === DMQ Questionnaire === */
 // From https://psychiatry.duke.edu/duke-center-misophonia-and-emotion-regulation/resources/resources-clinicians-researchers
 const dmqIntro = `
 The following questions refer to the experience of being intensely bothered by a sound or sounds, even when they are not overly loud. These can be human or non-human sounds, or the sight of someone or something making a sound that you can't hear (e.g., the sight of someone biting their nails from across the room).
-`
+`;
 
 const dmqLikertScale = [
   "Never",
@@ -187,7 +287,6 @@ const dmqLikertScale = [
   "Often",
   "Always/almost always"
 ];
-
 
 const dmqInstructionCognitive = "In the past month on average, when intensely bothered by a sound or sounds, please rate how often you had each of the following thoughts.";
 const dmqQuestionsCognitive = [
@@ -203,7 +302,6 @@ const dmqQuestionsCognitive = [
   "I thought about physically hurting the person making the sound.",
 ];
 
-
 const dmqInstructionPhysiological = "In the past month on average, when intensely bothered by a sound or sounds, please rate how often each of the following happened to you.";
 const dmqQuestionsPhysiological = [
   "I became rigid or stiff.",
@@ -212,8 +310,6 @@ const dmqQuestionsPhysiological = [
   "I started breathing intensely or forcefully.",
   "I reflexively jumped.",
 ];
-
-
 
 const dmqInstructionAffective = "In the past month on average, when intensely bothered by a sound or sounds, please rate how often you felt each of the following:";
 const dmqQuestionsAffective = [
@@ -248,31 +344,6 @@ const dmqPage = {
   randomize_question_order: false
 };
 
-const includeIfNotCompleted = async (trial) => {
-  const completed = await getStudyState("completed", []);
-  if (trial.data?.repitionIdentifierVariable) {
-    throw new Error("includeIfNotCompleted cannot handle trials with repitionIdentifierVariable. Use generateMissingProcedure instead.");
-  }
-  const isCompleted = completed.find(c => c.trialName === trial.data?.trialName);
-  return Boolean(isCompleted) ? [] : [trial];
-};
-
-const filterForMissing = async (allItems, timeline) => { 
-  const timelineDetails = timeline.map(t => ({ trialName: t.data?.trialName, repitionIdentifierVariable: t.data?.repitionIdentifierVariable || null }));
-  const completed = await getStudyState("completed", []);
-  // Filter out items that have already been completed for all timeline entries
-  return allItems.filter(item => {
-    const alreadyCompleted = timelineDetails.every(td => {
-      return completed.find(c => {
-        return c.trialName === td.trialName &&
-               c.repitionIdentifierVariable === td.repitionIdentifierVariable &&
-               (td.repitionIdentifierVariable === null || c.repitionIdentifier === item[td.repitionIdentifierVariable]);
-      });
-    });
-    return !Boolean(alreadyCompleted);
-  });
-}
-
 const generateDMQProcedure = async () => {
   const dmqTimeline = [dmqPage];
   const missingDMQ = await filterForMissing( [
@@ -290,21 +361,8 @@ const generateDMQProcedure = async () => {
     
 };
 
-const stimulusPresentPage = {
-    type: jsPsychAudioButtonResponse,
-    data: {
-      trialName: "stimuliPresentation",
-      stimulusId: jsPsych.timelineVariable("stimulusId"),
-      repitionIdentifierVariable: "stimulusId",
-    },
-    stimulus: jsPsych.timelineVariable("wavUrl"),
-    trial_duration: 30000,
-    choices: ['Sound is too uncomfortable, stop playback'],
-    prompt: "<p>Close your eyes and listen to the sound.</p>"
-};
 
-
-
+/* === Helpers for trigger category selection === */
 const makeTriggerCategoryFieldset = (triggerCategories, legend) => `
   <fieldset class="rating-fieldset" style="margin-top:2rem;" aria-labelledby="cat-legend">
     <legend class="rating-legend" id="cat-legend">
@@ -363,6 +421,8 @@ const triggerCategoryOnLoad = () => {
   syncState(null);
 }
 
+
+/* === Trigger declaration === */
 const triggerDeclarePage = {
   type: jsPsychSurveyHtmlForm,
   data: {
@@ -375,6 +435,23 @@ const triggerDeclarePage = {
   on_load: triggerCategoryOnLoad,
 };
 
+
+/* === Stimulus presentation and rating === */
+/* = Stimulus presentation = */
+const stimulusPresentPage = {
+    type: jsPsychAudioButtonResponse,
+    data: {
+      trialName: "stimuliPresentation",
+      stimulusId: jsPsych.timelineVariable("stimulusId"),
+      repitionIdentifierVariable: "stimulusId",
+    },
+    stimulus: jsPsych.timelineVariable("wavUrl"),
+    trial_duration: 30000,
+    choices: ['Sound is too uncomfortable, stop playback'],
+    prompt: "<p>Close your eyes and listen to the sound.</p>"
+};
+
+/* = Stimulus rating = */
 const stimulusRatingButtons = [
   { label: "5", color: "#e20001" },
   { label: "4", color: "#e25800" },
@@ -421,14 +498,58 @@ const stimulusRatePage = {
     </fieldset>
 
 
-    ${makeTriggerCategoryFieldset(triggerCategories.concat(["None of the above"]), "Which of the following categories did the sound you just heard belong to?")}
+    ${
+      makeTriggerCategoryFieldset(
+        triggerCategories.concat(["None of the above"]), 
+        "Which of the following categories did the sound you just heard belong to?"
+      )
+    }
   `,
   on_load: triggerCategoryOnLoad,
 };
 
+/* = Stimulus procedure timeline = */
 const stimulusProcedureTimeline = [stimulusPresentPage, stimulusRatePage];
+const generateStimulusPresentation = async (missingStimuli) => {
+  const firstAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "first");
+  const lastAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "last");
+  const nonAnchorStimuli = missingStimuli.filter(s => !s.anchorPosition);
+  
+  const stimuliTimelinePart = [];
+
+  if (firstAnchorStimuli.length > 0) {
+    stimuliTimelinePart.push({
+      timeline: stimulusProcedureTimeline,
+      data: {
+        isFirstAnchor: true,
+      },
+      timeline_variables: firstAnchorStimuli,
+    });
+  }
+
+  if (nonAnchorStimuli.length > 0) {
+    stimuliTimelinePart.push({
+      timeline: stimulusProcedureTimeline,
+      randomize_order: true,
+      timeline_variables: nonAnchorStimuli,
+    });
+  }
+
+  if (lastAnchorStimuli.length > 0) {
+    stimuliTimelinePart.push({
+      timeline: stimulusProcedureTimeline,
+      data: {
+        isLastAnchor: true,
+      },
+      timeline_variables: lastAnchorStimuli,
+    });
+  }
+
+  return stimuliTimelinePart;
+};
 
 
+/* === Thank you page === */
 const thanksPage = {
   type: jsPsychCallFunction,
   data: {
@@ -479,122 +600,14 @@ const thanksPage = {
       event.target.select();
     });
 
-    await window.jatos.appendResultData(JSON.stringify({ finalized: true }));
-    // await window.jatos.endStudyWithoutRedirect();
-
+    // await window.jatos.endStudyWithoutRedirect(); // Do not mark complete to allow revisiting the thank you page
   }
 };
 
 
-const isJATOS = typeof window.jatos !== "undefined";
-if (!isJATOS) {
-  alert("An error occurred while initializing the experiment. Please try again later. (Code: No JATOS)");
-}
-
-const ensureConditionAB = async () => {
-  const jatos = window.jatos;
-
-  const createIfMissing = async () => {
-    // Prepare Batch Session structure if missing
-    if (!jatos.batchSession.defined("/counts")) {
-      await jatos.batchSession.add("/counts", { A: 0, B: 0 });
-    }
-    if (!jatos.batchSession.defined("/assignments")) {
-      await jatos.batchSession.add("/assignments", {});
-    }
-  };
-
-
-  // Compute balanced condition from current counts
-  const calculateAssignment = async () => {
-    const counts = jatos.batchSession.find("/counts");
-    return counts.A === counts.B ? (Math.random() < 0.5 ? "A" : "B") : counts.A < counts.B ? "A" : "B";
-  };
-
-  // Write assignment (with simple retry to handle rare race conditions)
-  const commitAssignment = async (condition) => {
-    const ts = Date.now();
-    // Write this worker's assignment
-    await jatos.batchSession.add(`/assignments/${jatos.workerId}`, { condition, ts });
-    // Increment the bucket's count using replace
-    const freshCounts = jatos.batchSession.find("/counts") || { A: 0, B: 0 };
-    const next = (freshCounts[condition] || 0) + 1;
-    await jatos.batchSession.replace(`/counts/${condition}`, next);
-  };
-
-  let condition = await getStudyState("condition", null);
-
-  if (condition) {
-    console.log(`Reusing existing condition from Study Session: ${condition}`);
-    return condition;
-  }
-  
-  try {
-    condition = await calculateAssignment();
-  } catch (e) {
-    await createIfMissing();
-    condition = await calculateAssignment();
-  }
-  await commitAssignment(condition);
-  console.log(`Assigned new condition: ${condition}`);
-  await setStudyState("condition", () => condition);
-  return condition;
-};
-
-// const getMissingStimuli = async (allStimuliForCondition) => {
-//   const completed = await getStudyState("completed", []);
-//   return allStimuliForCondition.filter(s => {
-//     const alreadyCompleted = completed.find(c => {
-//       return c.trialName === "stimulusRating" &&
-//              c.repitionIdentifier === s[c.repitionIdentifierVariable];
-//     });
-//     return !Boolean(alreadyCompleted);
-//   });
-// };
-
-
-
-const generateSimulusPresentation = async (missingStimuli) => {
-  const firstAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "first");
-  const lastAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "last");
-  const nonAnchorStimuli = missingStimuli.filter(s => !s.anchorPosition);
-  
-  const stimuliTimelinePart = [];
-
-  if (firstAnchorStimuli.length > 0) {
-    stimuliTimelinePart.push({
-      timeline: stimulusProcedureTimeline,
-      data: {
-        isFirstAnchor: true,
-      },
-      timeline_variables: firstAnchorStimuli,
-    });
-  }
-
-  if (nonAnchorStimuli.length > 0) {
-    stimuliTimelinePart.push({
-      timeline: stimulusProcedureTimeline,
-      randomize_order: true,
-      timeline_variables: nonAnchorStimuli,
-    });
-  }
-
-  if (lastAnchorStimuli.length > 0) {
-    stimuliTimelinePart.push({
-      timeline: stimulusProcedureTimeline,
-      data: {
-        isLastAnchor: true,
-      },
-      timeline_variables: lastAnchorStimuli,
-    });
-  }
-
-  return stimuliTimelinePart;
-};
-
-
-
-
+/* 
+*** EXPERIMENT TIMELINE INITIALIZATION AND RUNNING THE EXPERIMENT ***
+*/
 window.jatos.onLoad(async () => {
   console.log("JATOS is loaded");
   document.querySelector("#jatos-waiting-message").style.display = "none";
@@ -603,13 +616,7 @@ window.jatos.onLoad(async () => {
   const allStimuliForCondition = stimuliAB[condition];
   const missingStimuli = await filterForMissing(allStimuliForCondition, stimulusProcedureTimeline);
 
-  console.log(`Total stimuli for condition:`, allStimuliForCondition);
   console.log(`Completed stimuli:`, allStimuliForCondition.length - missingStimuli.length);
-  console.log(`Missing stimuli:`, missingStimuli);
-
-  
-
-  
 
   const timeline = [
     ...await generatePreloadWelcome(missingStimuli),
@@ -617,12 +624,13 @@ window.jatos.onLoad(async () => {
     ...await includeIfNotCompleted(demographicsPage),
     ...await includeIfNotCompleted(triggerDeclarePage),
     ...await generateDMQProcedure(),
-    ...await generateSimulusPresentation(missingStimuli),
+    ...await generateStimulusPresentation(missingStimuli),
     thanksPage
   ];
 
-  jsPsych.run(timeline);
+  console.log("Final timeline:", timeline);
 
+  jsPsych.run(timeline);
 });
 
 
