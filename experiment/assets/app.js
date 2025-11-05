@@ -48,13 +48,16 @@ const introBeforeConsentGivenHtml = `
     Your participation is voluntary, and you may skip sounds or withdraw at any time, without any consequences.
   </p>
   <p>
-    Please read our <a href="${privacyPolicyLink}" target="_blank">Privacy Policy</a> for more details on how your data will be handled. Note that the data collected will be pseudonymized and made publicly available for anyone to use.
+    Please read our <a href="${privacyPolicyLink}" target="_blank">Privacy Policy</a> describing how your data will be handled. Note that the data collected will be pseudonymized and made publicly available for anyone to use.
   </p>
 
 `;
 const consentCheckText = `I am 18 years or older, I have read and understood the information provided, and I consent to participate voluntarily in this study.`;
 
-const introAfterConsentGivenHtml = `Your previous progress has been restored. You will continue from where you left off.`;
+const introAfterConsentGivenHtml = `
+  <h1>Misophonia Study</h1>
+  <p>Your previous progress has been restored. You will continue from where you left off.</p>
+`;
 
 
 
