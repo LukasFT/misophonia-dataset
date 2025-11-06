@@ -15,9 +15,11 @@ const stimuliAB = {
     { stimulusId: "Haircut16-44p1", anchorPosition: "first" }
   ],
 };
+const staticBase = `/static/`;
+const soundBaseUrl = `${staticBase}sounds/`;
 Object.values(stimuliAB).forEach(g => {
   g.forEach(s => {
-    s.wavUrl = `sounds/${s.stimulusId}.wav`
+    s.wavUrl = `${soundBaseUrl}${s.stimulusId}.wav`
   });
 });
 
@@ -28,8 +30,8 @@ const triggerCategories = [
   "Category D",
 ];
 
-const soundPlayingMp4 = `sound-playing.mp4`;
-const soundPlayingGif = `sound-playing.gif`;
+const soundPlayingMp4 = `${staticBase}sound-playing.mp4`;
+const soundPlayingGif = `${staticBase}sound-playing.gif`;
 const privacyPolicyLink = `privacy.html`;
 
 
@@ -149,7 +151,15 @@ const ensureOneBrowserPerStudy = (sharePathname) => {
   }
 };
 
+
+
 if ((new URL(window.location.href)).searchParams.has("share")) {
+  // if url has resetSession=true, clear the cookie for this share link
+  if ((new URL(window.location.href)).searchParams.has("resetSession")) {
+    const sharePathname = (new URL(window.location.href)).searchParams.get("share");
+    const cookieName = `${sharePathname}-instance`;
+    setCookie(cookieName, "", -1); // delete cookie
+  }
   ensureOneBrowserPerStudy((new URL(window.location.href)).searchParams.get("share"));
 }
 
