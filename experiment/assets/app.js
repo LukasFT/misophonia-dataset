@@ -5,13 +5,13 @@ const stimuliAB = {
   A: [
     { stimulusId: "phrases2b20" },
 
-    { stimulusId: "Haircut16-44p1-2", anchorPosition: "first" },
+    { stimulusId: "Haircut16-44p1-2-fail", anchorPosition: "first" },
     { stimulusId: "Haircut16-44p1", anchorPosition: "last" }
   ],
   B: [
     { stimulusId: "phrases2b20" },
 
-    { stimulusId: "Haircut16-44p1-2", anchorPosition: "last" },
+    { stimulusId: "Haircut16-44p1-2-fail", anchorPosition: "last" },
     { stimulusId: "Haircut16-44p1", anchorPosition: "first" }
   ],
 };
@@ -35,7 +35,7 @@ const soundPlayingGif = `${staticBase}sound-playing.gif`;
 const privacyPolicyLink = `privacy.html`;
 
 
-const introBeforeConsentGivenHtml = `
+const welcomeConsentHtml = `
   <h1>Misophonia Study</h1>
   <p>Misophonia is a condition where specific everyday sounds, such as chewing and pen clicking, provoke strong discomfort.</p>
   <p>We are creating a dataset of sound mixes that can be used to develop noise-cancelling headphones that selectively filter out misophonia trigger sounds.</p>
@@ -55,12 +55,6 @@ const introBeforeConsentGivenHtml = `
 
 `;
 const consentCheckText = `I am 18 years or older, I have read and understood the information provided, and I consent to participate voluntarily in this study.`;
-
-const introAfterConsentGivenHtml = `
-  <h1>Misophonia Study</h1>
-  <p>Your previous progress has been restored. You will continue from where you left off.</p>
-`;
-
 
 const stimuliPresentationInstructionsHtml = `
   <h1>Get ready to listen</h1>
@@ -226,6 +220,33 @@ const onDataUpdate = async (data) => {
   });
 };
 
+const filesToPreload = [];
+const filesSuccessfullyPreloaded = [];
+const hasBeenPreloaded = {
+  audio: false,
+  video: false,
+  images: false,
+};
+const backgroundPreload = (preloadSpec) => {
+  const makeCallbacks = (fileType) => {
+    const onComplete = () => {
+      hasBeenPreloaded[fileType] = true;
+    };
+    const onSingleComplete = (file) => {
+      filesSuccessfullyPreloaded.push(file);
+    };
+    const onError = (file) => {
+      crashWithError(Error(`Failed to preload ${fileType} file: ${file}`));
+    };
+
+    return [ onComplete, onSingleComplete, onError ];
+  };
+  filesToPreload.push(...preloadSpec.audio, ...preloadSpec.video, ...preloadSpec.images);
+  jsPsych.pluginAPI.preloadAudio(preloadSpec.audio, ...makeCallbacks("audio"));
+  jsPsych.pluginAPI.preloadVideo(preloadSpec.video, ...makeCallbacks("video"));
+  jsPsych.pluginAPI.preloadImages(preloadSpec.images, ...makeCallbacks("images"));
+};
+
 
 /* === Page reload / already completed functionality === */
 const includeIfNotCompleted = async (trial) => {
@@ -321,73 +342,27 @@ const jsPsych = initJsPsych({
 /*
 *** EXPERIMENT TIMELINE DEFINITIONS ***
 */
-/* Preload welcome message */
-const soundPlayingHtml = `
-  <p>Please listen to the sound playing</p>
-  <video nocontrols autoplay loop muted playsinline style="width:100%;height:auto;max-width: 12rem;">
-    <source src="${soundPlayingMp4}" type="video/mp4">
-    <img src="${soundPlayingGif}" alt="Sound playing animation">
-  </video>
-`;
-const generatePreloadWelcome = async (missingStimuli) => {
-  const completed = await getStudyState("completed", []);
-  const hasConsent = completed.find(c => c.trialName === "consent");
-  const isDone = completed.find(c => c.trialName === "thanks");
-  if (isDone) {
-    return []; // No welcome if already completed
-  }
+/* Welcome message */
+const welcomeConsentPage = {
+    type: jsPsychSurveyHtmlForm,
+    data: {
+      trialName: "welcomeConsent"
+    },
+    dataAsArray: true,
+    preamble: `
+      <div class="custom-content-container">
+        ${welcomeConsentHtml}
+      </div>
+    `,
+    html: `
+      <label style="font-weight: bold;">
+        <input type="checkbox" name="consent" value="yes" required>
+        ${consentCheckText}
+      </label>
+      <br><br>
+    `
+  };
 
-  const welcomeTimeline = [];
-
-  const welcomeHtml = `
-    <div class="custom-content-container">
-      ${hasConsent ? introAfterConsentGivenHtml : introBeforeConsentGivenHtml}
-    </div>
-    <div style="max-height:1px;overflow:hidden;">
-      ${soundPlayingHtml}
-    </div>
-  `; // Adding the sound playing html means it will be preloaded
-
-  welcomeTimeline.push({
-      type: jsPsychPreload,
-      data: {
-        doNotSave: true,
-        trialName: "preloadWelcome",
-      },
-      auto_preload: false, // specify files manually below
-      audio: missingStimuli.map(s => s.wavUrl),
-      video: [soundPlayingMp4],
-      images: [soundPlayingGif],
-      message: `
-        ${welcomeHtml}
-        <p>Loading, please wait...</p>
-      `,
-  });
-
-  if (!hasConsent) {
-    welcomeTimeline.push({
-      type: jsPsychSurveyHtmlForm,
-      data: {
-        trialName: "consent"
-      },
-      dataAsArray: true,
-      preamble: `
-        <div class="custom-content-container">
-          ${welcomeHtml}
-        </div>
-      `,
-      html: `
-        <label style="font-weight: bold;">
-          <input type="checkbox" name="consent" value="yes" required>
-          ${consentCheckText}
-        </label>
-        <br><br>
-      `
-    });
-  }
-
-  return welcomeTimeline;
-};
 
 
 /* === Demographics === */
@@ -589,6 +564,13 @@ const triggerDeclarePage = {
 
 /* === Stimulus presentation and rating === */
 /* = Stimulus presentation = */
+const soundPlayingHtml = `
+  <p>Please listen to the sound playing</p>
+  <video nocontrols autoplay loop muted playsinline style="width:100%;height:auto;max-width: 12rem;">
+    <source src="${soundPlayingMp4}" type="video/mp4">
+    <img src="${soundPlayingGif}" alt="Sound playing animation">
+  </video>
+`;
 const stimulusPresentPage = {
     type: jsPsychAudioButtonResponse,
     data: {
@@ -599,14 +581,7 @@ const stimulusPresentPage = {
     stimulus: jsPsych.timelineVariable("wavUrl"),
     trial_duration: 30000,
     choices: ['Sound is too uncomfortable, stop playback'],
-    // Show soundPlayingMp4
-    prompt: `
-      <p>Please listen to the sound playing</p>
-      <video nocontrols autoplay loop muted playsinline style="width:100%;height:auto;max-width: 12rem;">
-        <source src="${soundPlayingMp4}" type="video/mp4">
-        <img src="${soundPlayingGif}" alt="Sound playing animation">
-      </video>
-    `
+    prompt: soundPlayingHtml,
 };
 
 /* = Stimulus rating = */
@@ -669,7 +644,7 @@ const stimulusRatePage = {
 
 /* = Stimulus procedure timeline = */
 const stimulusProcedureTimeline = [stimulusPresentPage, stimulusRatePage];
-const generateStimulusPresentation = async (missingStimuli) => {
+const generateStimulusPresentation = async (missingStimuli, preloadSpec) => {
   const firstAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "first");
   const lastAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "last");
   const nonAnchorStimuli = missingStimuli.filter(s => !s.anchorPosition);
@@ -705,20 +680,62 @@ const generateStimulusPresentation = async (missingStimuli) => {
   }
 
   if (stimuliTimelinePart.length > 0) {
-    // Add instructions before stimuli presentation
-    stimuliTimelinePart.unshift({
-      type: jsPsychHtmlButtonResponse,
-      data: {
-        doNotSave: true,
-        trialName: "stimuliInstructions",
+    // Add instructions and preload before stimuli presentation
+    const preloadHtml = `
+      <div class="custom-content-container">
+        ${stimuliPresentationInstructionsHtml}
+      </div>
+      <div style="max-height:1px;overflow:hidden;">
+        ${soundPlayingHtml}
+      </div>
+    `; // Adding the sound playing html means it will be preloaded, it did not work otherwise
+    stimuliTimelinePart.unshift(
+      {
+        type: jsPsychCallFunction,
+        data: {
+          doNotSave: true,
+          trialName: "stimuliPreload",
+        },
+        async: true,
+        func: async (done) => {
+          // Set loading message
+          document.querySelector("#jspsych-content").innerHTML = `
+            <div class="custom-content-container">
+              ${preloadHtml}
+              <p>Loading, please wait...</p>
+              <div id='jspsych-loading-progress-bar-container' style='height: 10px; width: 300px; background-color: #ddd; margin: auto;'>
+                <div id='jspsych-loading-progress-bar' style='height: 10px; width: 0%; background-color: #777;'></div>
+              </div>
+            </div>
+          `;
+
+          // Wait for all to be preloaded
+          while (!hasBeenPreloaded.audio ||
+                 !hasBeenPreloaded.video ||
+                 !hasBeenPreloaded.images) {
+            const progressPercent = (filesSuccessfullyPreloaded.length / filesToPreload.length) * 100;
+            const progressBar = document.getElementById("jspsych-loading-progress-bar");
+            if (progressBar) {
+              progressBar.style.width = `${progressPercent}%`;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+
+          document.querySelector("#jspsych-root").innerHTML = ``;
+          done({});
+        },
+
       },
-      stimulus: `
-        <div class="custom-content-container">
-          ${stimuliPresentationInstructionsHtml}
-        </div>
-      `,
-      choices: ["Play sound"],
-    });
+      {
+        type: jsPsychHtmlButtonResponse,
+        data: {
+          doNotSave: true,
+          trialName: "stimuliInstructions",
+        },
+        stimulus: preloadHtml,
+        choices: ["Play sound"],
+      }
+    );
   }
 
   return stimuliTimelinePart;
@@ -734,8 +751,7 @@ const thanksPage = {
   func: async () => {
     window.onbeforeunload = null; // Disable the warning on unload
     const shareLink = getShareLink();
-    document.querySelector("#jspsych-root").innerHTML = `
-    <div class="jspsych-content">
+    document.querySelector("#jspsych-content").innerHTML = `
       <div class="custom-content-container">
         <h1>Thank You!</h1>
         <p>Your participation is greatly appreciated.</p>
@@ -761,7 +777,6 @@ const thanksPage = {
           ${copyrightCredits}
         </div>
       </div>
-    </div>
     `;
     const copyBtn = document.getElementById('copy-btn');
     const input = document.getElementById('study-link');
@@ -797,14 +812,22 @@ window.jatos.onLoad(async () => {
   const allStimuliForCondition = stimuliAB[condition];
   const missingStimuli = await filterForMissing(allStimuliForCondition, stimulusProcedureTimeline);
 
+  const filesToPreload = {
+    audio: missingStimuli.map(s => s.wavUrl),
+    video: [soundPlayingMp4],
+    images: [soundPlayingGif],
+  };
+  backgroundPreload(filesToPreload);
+
   console.log(`Completed stimuli:`, allStimuliForCondition.length - missingStimuli.length);
+  console.log(`Files to preload:`, filesToPreload);
 
   const timeline = [
-    ...await generatePreloadWelcome(missingStimuli),
+    ...await includeIfNotCompleted(welcomeConsentPage),
     ...await includeIfNotCompleted(demographicsPage),
     ...await includeIfNotCompleted(triggerDeclarePage),
     ...await generateDMQProcedure(),
-    ...await generateStimulusPresentation(missingStimuli),
+    ...await generateStimulusPresentation(missingStimuli, filesToPreload),
     thanksPage
   ];
 
