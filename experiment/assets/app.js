@@ -5,13 +5,13 @@ const stimuliAB = {
   A: [
     { stimulusId: "phrases2b20" },
 
-    { stimulusId: "Haircut16-44p1-2-fail", anchorPosition: "first" },
+    { stimulusId: "Haircut16-44p1-2", anchorPosition: "first" },
     { stimulusId: "Haircut16-44p1", anchorPosition: "last" }
   ],
   B: [
     { stimulusId: "phrases2b20" },
 
-    { stimulusId: "Haircut16-44p1-2-fail", anchorPosition: "last" },
+    { stimulusId: "Haircut16-44p1-2", anchorPosition: "last" },
     { stimulusId: "Haircut16-44p1", anchorPosition: "first" }
   ],
 };
@@ -220,20 +220,12 @@ const onDataUpdate = async (data) => {
   });
 };
 
-const filesToPreload = [];
-const filesSuccessfullyPreloaded = [];
-const hasBeenPreloaded = {
-  audio: false,
-  video: false,
-  images: false,
-};
+const preloadStatus = {}
 const backgroundPreload = (preloadSpec) => {
   const makeCallbacks = (fileType) => {
-    const onComplete = () => {
-      hasBeenPreloaded[fileType] = true;
-    };
+    const onComplete = () => {};
     const onSingleComplete = (file) => {
-      filesSuccessfullyPreloaded.push(file);
+      preloadStatus[file] = true;
     };
     const onError = (file) => {
       crashWithError(Error(`Failed to preload ${fileType} file: ${file}`));
@@ -241,7 +233,9 @@ const backgroundPreload = (preloadSpec) => {
 
     return [ onComplete, onSingleComplete, onError ];
   };
-  filesToPreload.push(...preloadSpec.audio, ...preloadSpec.video, ...preloadSpec.images);
+  for (const file of [...preloadSpec.audio, ...preloadSpec.video, ...preloadSpec.images]) {
+    preloadStatus[file] = false;
+  }
   jsPsych.pluginAPI.preloadAudio(preloadSpec.audio, ...makeCallbacks("audio"));
   jsPsych.pluginAPI.preloadVideo(preloadSpec.video, ...makeCallbacks("video"));
   jsPsych.pluginAPI.preloadImages(preloadSpec.images, ...makeCallbacks("images"));
@@ -563,6 +557,43 @@ const triggerDeclarePage = {
 
 
 /* === Stimulus presentation and rating === */
+
+/* = Stimulus preload = */
+const stimulusPreloadPage = {
+  type: jsPsychCallFunction,
+  data: {
+    doNotSave: true,
+    trialName: "stimulusPreload",
+    stimulusId: jsPsych.timelineVariable("stimulusId"),
+    repitionIdentifierVariable: "stimulusId",
+    wavUrl: jsPsych.timelineVariable("wavUrl"),
+  },
+  async: true,
+  func: async (done) => {
+    // Set loading message
+    document.querySelector("#jspsych-content").innerHTML = `
+      <div class="custom-content-container">
+        <p>Loading sound, please wait...</p>
+        <div style="max-height:1px;overflow:hidden;">
+          ${soundPlayingHtml}
+        </div>
+      </div>
+    `;
+
+    // Wait for all to be preloaded
+    const wavUrl = jsPsych.evaluateTimelineVariable("wavUrl");
+    while (!preloadStatus[wavUrl] ||
+           !preloadStatus[soundPlayingMp4] ||
+           !preloadStatus[soundPlayingGif]) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    document.querySelector("#jspsych-root").innerHTML = ``;
+    done({});
+  }
+}
+
+
 /* = Stimulus presentation = */
 const soundPlayingHtml = `
   <p>Please listen to the sound playing</p>
@@ -643,8 +674,8 @@ const stimulusRatePage = {
 };
 
 /* = Stimulus procedure timeline = */
-const stimulusProcedureTimeline = [stimulusPresentPage, stimulusRatePage];
-const generateStimulusPresentation = async (missingStimuli, preloadSpec) => {
+const stimulusProcedureTimeline = [stimulusPreloadPage, stimulusPresentPage, stimulusRatePage];
+const generateStimulusPresentation = async (missingStimuli) => {
   const firstAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "first");
   const lastAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "last");
   const nonAnchorStimuli = missingStimuli.filter(s => !s.anchorPosition);
@@ -680,59 +711,18 @@ const generateStimulusPresentation = async (missingStimuli, preloadSpec) => {
   }
 
   if (stimuliTimelinePart.length > 0) {
-    // Add instructions and preload before stimuli presentation
-    const preloadHtml = `
-      <div class="custom-content-container">
-        ${stimuliPresentationInstructionsHtml}
-      </div>
-      <div style="max-height:1px;overflow:hidden;">
-        ${soundPlayingHtml}
-      </div>
-    `; // Adding the sound playing html means it will be preloaded, it did not work otherwise
     stimuliTimelinePart.unshift(
-      {
-        type: jsPsychCallFunction,
-        data: {
-          doNotSave: true,
-          trialName: "stimuliPreload",
-        },
-        async: true,
-        func: async (done) => {
-          // Set loading message
-          document.querySelector("#jspsych-content").innerHTML = `
-            <div class="custom-content-container">
-              ${preloadHtml}
-              <p>Loading, please wait...</p>
-              <div id='jspsych-loading-progress-bar-container' style='height: 10px; width: 300px; background-color: #ddd; margin: auto;'>
-                <div id='jspsych-loading-progress-bar' style='height: 10px; width: 0%; background-color: #777;'></div>
-              </div>
-            </div>
-          `;
-
-          // Wait for all to be preloaded
-          while (!hasBeenPreloaded.audio ||
-                 !hasBeenPreloaded.video ||
-                 !hasBeenPreloaded.images) {
-            const progressPercent = (filesSuccessfullyPreloaded.length / filesToPreload.length) * 100;
-            const progressBar = document.getElementById("jspsych-loading-progress-bar");
-            if (progressBar) {
-              progressBar.style.width = `${progressPercent}%`;
-            }
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-
-          document.querySelector("#jspsych-root").innerHTML = ``;
-          done({});
-        },
-
-      },
       {
         type: jsPsychHtmlButtonResponse,
         data: {
           doNotSave: true,
           trialName: "stimuliInstructions",
         },
-        stimulus: preloadHtml,
+        stimulus: `
+          <div class="custom-content-container">
+            ${stimuliPresentationInstructionsHtml}
+          </div>
+        `,
         choices: ["Play sound"],
       }
     );
@@ -748,6 +738,7 @@ const thanksPage = {
   data: {
     trialName: "thanks",
   },
+  async: true,
   func: async () => {
     window.onbeforeunload = null; // Disable the warning on unload
     const shareLink = getShareLink();
@@ -827,7 +818,7 @@ window.jatos.onLoad(async () => {
     ...await includeIfNotCompleted(demographicsPage),
     ...await includeIfNotCompleted(triggerDeclarePage),
     ...await generateDMQProcedure(),
-    ...await generateStimulusPresentation(missingStimuli, filesToPreload),
+    ...await generateStimulusPresentation(missingStimuli),
     thanksPage
   ];
 
