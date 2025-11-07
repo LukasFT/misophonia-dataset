@@ -1,3 +1,15 @@
+// Error handler
+const crashWithError = (e) => {
+  console.error(e);
+  document.getElementById("jatos-error-message").style.display = "";
+  document.getElementById("jatos-error-details").innerText = e.toString();
+  window.onbeforeunload = null; // Disable the warning on unload
+}
+window.onerror = (message, source, lineno, colno, error) => crashWithError(error || new Error(message));
+window.addEventListener("error", (ErrorEvent) => crashWithError(ErrorEvent.error || new Error(ErrorEvent.message)));
+window.addEventListener("unhandledrejection", (event) => crashWithError(event.reason || new Error("Unhandled promise rejection")));
+
+
 /*
 *** CONTENT DEFINITIONS FOR THE EXPERIMENT ***
 */
@@ -188,14 +200,6 @@ const appendResultJson = async (obj) => {
   const jsonData = JSON.stringify(objWithIDs);
   await window.jatos.appendResultData(jsonData + "\n"); // Make data as JSONL
   console.log(`Appended result data:`, jsonData);
-}
-
-
-const crashWithError = (e) => {
-  console.error(e);
-  document.getElementById("jatos-error-message").style.display = "";
-  document.getElementById("jatos-error-details").innerText = e.toString();
-  window.onbeforeunload = null; // Disable the warning on unload
 }
 
 const onDataUpdate = async (data) => {
@@ -826,6 +830,4 @@ window.jatos.onLoad(async () => {
 
   jsPsych.run(timeline);
 });
-
-
 
