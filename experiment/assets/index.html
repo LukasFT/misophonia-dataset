@@ -145,11 +145,35 @@
         padding-top: 15px !important;
       }
 
+        /* From https://cssloaders.github.io/ */
+      .loader {
+        width: 48px;
+        height: 48px;
+        border: 10px solid black;
+        border-bottom-color: transparent;
+        border-radius: 50%;
+        display: inline-block;
+        box-sizing: border-box;
+        animation: rotation 1s linear infinite;
+        }
+
+        @keyframes rotation {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+        }
+
     </style>
   </head>
   <body>
     <div id="jatos-waiting-message">
-      Please wait while the study is loading ...
+      <div class="jspsych-content">
+        <p>Please wait while the study is loading</p>
+        <div class="loader"></div>
+      </div>
     </div>
     <div id="jatos-error-message" style="display: none; height: 100%; width: 100%; z-index: 100; background-color: rgb(128 11 11); position: absolute; top: 0; left: 0; color: white; font-size: 2rem; text-align: center; padding-top: 20%;">
       An error occurred. Try <a href="#" style="color:white;" onclick="location.reload(); return false;">reloading the page</a>.

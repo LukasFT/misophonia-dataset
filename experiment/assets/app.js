@@ -27,13 +27,26 @@ const stimuliAB = {
     { stimulusId: "Haircut16-44p1", anchorPosition: "first" }
   ],
 };
+
+const allHeadsetTestStimuli = [
+  { stimulusId: "headset-test-1", durationMs: 10000, options: [{name: "A", correct: true}, {name: "B", correct: false}, {name: "C", correct: false}] },
+  { stimulusId: "headset-test-2", durationMs: 10000, options: [{name: "A", correct: false}, {name: "B", correct: true}, {name: "C", correct: false}] },
+  { stimulusId: "headset-test-3", durationMs: 10000, options: [{name: "A", correct: false}, {name: "B", correct: false}, {name: "C", correct: true}] },
+  { stimulusId: "headset-test-4", durationMs: 10000, options: [{name: "A", correct: true}, {name: "B", correct: false}, {name: "C", correct: false}] },
+];
+const nHeadsetTrials = 3;
+const nRequiredHeadsetToPass = 2;
+
 const staticBase = `/static/`;
 const soundBaseUrl = `${staticBase}sounds/`;
-Object.values(stimuliAB).forEach(g => {
-  g.forEach(s => {
+
+const addWavUrlsToStimuli = (l) => {
+  l.forEach(s => {
     s.wavUrl = `${soundBaseUrl}${s.stimulusId}.wav`
   });
-});
+}
+Object.values(stimuliAB).forEach(g => addWavUrlsToStimuli(g));
+addWavUrlsToStimuli(allHeadsetTestStimuli);
 
 const triggerCategories = [
   "Category A",
@@ -42,10 +55,9 @@ const triggerCategories = [
   "Category D",
 ];
 
-const soundPlayingMp4 = `${staticBase}sound-playing.mp4`;
+// const soundPlayingMp4 = `${staticBase}sound-playing.mp4`; // Experienced some issues preloading, so we use the gif
 const soundPlayingGif = `${staticBase}sound-playing.gif`;
 const privacyPolicyLink = `privacy.html`;
-
 
 const welcomeConsentHtml = `
   <h1>Misophonia Study</h1>
@@ -72,6 +84,12 @@ const stimuliPresentationInstructionsHtml = `
   <h1>Get ready to listen</h1>
   <p>You will now hear a series of sound clips. Please listen to each carefully. Some sounds might be triggering, but you always have the option to skip if they are too uncomfortable.</p>
   <p>After each sound, you will be asked to rate the level of discomfort or anxiety you experienced while listening to it. You will also be asked to select which sound or sounds you think you heard.</p>
+`;
+
+const headsetInstructionsHtml = `
+  <p><b>Please wear a headset or listen through speakers in a quiet environment.</b></p>
+  <p>You will now listen to some sound clips to test that you can hear them clearly. Please adjust your volume so it is comfortable. </p>
+  <p>Afterwards, we will test that you could identify what sounds you heard.</p>
 `;
 
 const copyrightCredits = `
@@ -169,9 +187,6 @@ if ((new URL(window.location.href)).searchParams.has("share")) {
   ensureOneBrowserPerStudy((new URL(window.location.href)).searchParams.get("share"));
 }
 
-// console.log(`Share link for this study: ${getShareLink()}`);
-
-
 
 /*
 *** HELPER FUNCTIONS USED FOR DEFINING THE EXPERIMENT TIMELINE ***
@@ -227,8 +242,11 @@ const onDataUpdate = async (data) => {
 const preloadStatus = {}
 const backgroundPreload = (preloadSpec) => {
   const makeCallbacks = (fileType) => {
-    const onComplete = () => {};
+    const onComplete = () => {
+      console.log(`Preloaded all ${fileType} files.`)
+    };
     const onSingleComplete = (file) => {
+      console.log(`Preloaded ${fileType} file: ${file}`);
       preloadStatus[file] = true;
     };
     const onError = (file) => {
@@ -560,24 +578,23 @@ const triggerDeclarePage = {
 };
 
 
-/* === Stimulus presentation and rating === */
-
-/* = Stimulus preload = */
-const stimulusPreloadPage = {
+/* === Headset test === */
+/* = Preload = */
+const preloadPage = {
   type: jsPsychCallFunction,
   data: {
     doNotSave: true,
-    trialName: "stimulusPreload",
+    trialName: "preload",
     stimulusId: jsPsych.timelineVariable("stimulusId"),
     repitionIdentifierVariable: "stimulusId",
-    wavUrl: jsPsych.timelineVariable("wavUrl"),
   },
   async: true,
   func: async (done) => {
     // Set loading message
     document.querySelector("#jspsych-content").innerHTML = `
       <div class="custom-content-container">
-        <p>Loading sound, please wait...</p>
+        <p>Loading sound, please wait ...</p>
+        <div class="loader"></div>
         <div style="max-height:1px;overflow:hidden;">
           ${soundPlayingHtml}
         </div>
@@ -586,9 +603,11 @@ const stimulusPreloadPage = {
 
     // Wait for all to be preloaded
     const wavUrl = jsPsych.evaluateTimelineVariable("wavUrl");
-    while (!preloadStatus[wavUrl] ||
-           !preloadStatus[soundPlayingMp4] ||
-           !preloadStatus[soundPlayingGif]) {
+    const isDoneLoading = () => {
+      return preloadStatus[wavUrl] && preloadStatus[soundPlayingGif];
+    };
+
+    while (!isDoneLoading()) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
@@ -597,15 +616,84 @@ const stimulusPreloadPage = {
   }
 }
 
-
-/* = Stimulus presentation = */
 const soundPlayingHtml = `
   <p>Please listen to the sound playing</p>
-  <video nocontrols autoplay loop muted playsinline style="width:100%;height:auto;max-width: 12rem;">
-    <source src="${soundPlayingMp4}" type="video/mp4">
-    <img src="${soundPlayingGif}" alt="Sound playing animation">
-  </video>
+  <img src="${soundPlayingGif}" alt="Sound playing animation" style="max-width: 150px;">
 `;
+
+const sampleHeadsetTest = async () => {
+  const shuffled = allHeadsetTestStimuli.sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, nHeadsetTrials);
+};
+
+const headsetInstructionsPage = {
+  type: jsPsychHtmlButtonResponse,
+  data: {
+    doNotSave: true,
+    trialName: "headsetInstructions",
+  },
+  stimulus: headsetInstructionsHtml,
+  choices: ["Continue"],
+};
+
+const headsetPresentPage = {
+    type: jsPsychAudioButtonResponse,
+    data: {
+      trialName: "headsetPresentation",
+      stimulusId: jsPsych.timelineVariable("stimulusId"),
+      repitionIdentifierVariable: "stimulusId",
+    },
+    stimulus: jsPsych.timelineVariable("wavUrl"),
+    trial_duration: jsPsych.timelineVariable("durationMs"),
+    choices: [],
+    prompt: soundPlayingHtml,
+};
+
+const headsetAnswerPage = {
+  type: jsPsychSurveyHtmlForm,
+  data: {
+    trialName: "headsetTest",
+    stimulusId: jsPsych.timelineVariable("stimulusId"),
+    repitionIdentifierVariable: "stimulusId",
+  },
+  html: () => {
+    // One button per option. WShould submit immediately on selection.
+    const options = jsPsych.evaluateTimelineVariable("options");
+    return `
+      <fieldset class="form-group">
+        <legend class="form-label">Which sound did you hear?</legend>
+        ${options.map((opt, i) => `
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="headset_answer" id="option-${i}" value="${opt.name}" required />
+            <label class="form-check-label" for="option-${i}">${opt.name}</label>
+          </div>
+        `).join("")}
+      </fieldset>
+    `;
+  },
+  button_label: "Continue",
+};
+
+const generateHeadsetTestProcedure = async (sampledHeadsetStimuli) => {
+  // Get studySessionData -> completedHeadset
+  const hasCompletedHeadset = await getStudyState("completedHeadset", false);
+  if (hasCompletedHeadset) {
+    return [];
+  }
+
+  const headsetTestTimeline = {
+    timeline: [preloadPage, headsetPresentPage, headsetAnswerPage],
+    randomize_order: true,
+    timeline_variables: sampledHeadsetStimuli,
+  };
+
+  return [ headsetInstructionsPage, headsetTestTimeline ];
+};
+
+
+
+/* === Stimulus presentation and rating === */
+/* = Stimulus presentation = */
 const stimulusPresentPage = {
     type: jsPsychAudioButtonResponse,
     data: {
@@ -678,7 +766,7 @@ const stimulusRatePage = {
 };
 
 /* = Stimulus procedure timeline = */
-const stimulusProcedureTimeline = [stimulusPreloadPage, stimulusPresentPage, stimulusRatePage];
+const stimulusProcedureTimeline = [preloadPage, headsetPresentPage, stimulusRatePage];
 const generateStimulusPresentation = async (missingStimuli) => {
   const firstAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "first");
   const lastAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "last");
@@ -807,9 +895,11 @@ window.jatos.onLoad(async () => {
   const allStimuliForCondition = stimuliAB[condition];
   const missingStimuli = await filterForMissing(allStimuliForCondition, stimulusProcedureTimeline);
 
+  const sampledHeadsetStimuli = await sampleHeadsetTest();
+
   const filesToPreload = {
-    audio: missingStimuli.map(s => s.wavUrl),
-    video: [soundPlayingMp4],
+    audio: [...missingStimuli, ...sampledHeadsetStimuli].map(s => s.wavUrl),
+    video: [], // Experienced issues with preloading soundPlayingMp4
     images: [soundPlayingGif],
   };
   backgroundPreload(filesToPreload);
@@ -822,6 +912,7 @@ window.jatos.onLoad(async () => {
     ...await includeIfNotCompleted(demographicsPage),
     ...await includeIfNotCompleted(triggerDeclarePage),
     ...await generateDMQProcedure(),
+    ...await generateHeadsetTestProcedure(sampledHeadsetStimuli),
     ...await generateStimulusPresentation(missingStimuli),
     thanksPage
   ];
