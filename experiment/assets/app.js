@@ -29,13 +29,13 @@ const stimuliAB = {
 };
 
 const allHeadsetTestStimuli = [
-  { stimulusId: "headset-test-1", durationMs: 10000, options: [{name: "A", correct: true}, {name: "B", correct: false}, {name: "C", correct: false}] },
-  { stimulusId: "headset-test-2", durationMs: 10000, options: [{name: "A", correct: false}, {name: "B", correct: true}, {name: "C", correct: false}] },
-  { stimulusId: "headset-test-3", durationMs: 10000, options: [{name: "A", correct: false}, {name: "B", correct: false}, {name: "C", correct: true}] },
-  { stimulusId: "headset-test-4", durationMs: 10000, options: [{name: "A", correct: true}, {name: "B", correct: false}, {name: "C", correct: false}] },
+  { stimulusId: "headset-test-1", durationMs: 2000, options: [{name: "A", correct: true}, {name: "B", correct: false}, {name: "C", correct: false}] },
+  { stimulusId: "headset-test-2", durationMs: 2000, options: [{name: "A", correct: false}, {name: "B", correct: true}, {name: "C", correct: false}] },
+  { stimulusId: "headset-test-3", durationMs: 2000, options: [{name: "A", correct: false}, {name: "B", correct: false}, {name: "C", correct: true}] },
+  { stimulusId: "headset-test-4", durationMs: 2000, options: [{name: "A", correct: true}, {name: "B", correct: false}, {name: "C", correct: false}] },
 ];
-const nHeadsetTrials = 3;
-const nRequiredHeadsetToPass = 2;
+const nHeadsetTrials = 4;
+const nRequiredHeadsetToPass = 3;
 
 const staticBase = `/static/`;
 const soundBaseUrl = `${staticBase}sounds/`;
@@ -49,10 +49,9 @@ Object.values(stimuliAB).forEach(g => addWavUrlsToStimuli(g));
 addWavUrlsToStimuli(allHeadsetTestStimuli);
 
 const triggerCategories = [
-  "Category A",
-  "Category B",
-  "Category C",
-  "Category D",
+  "Chewing",
+  "Plastic Crumbling",
+  "Pen Clicking",
 ];
 
 // const soundPlayingMp4 = `${staticBase}sound-playing.mp4`; // Experienced some issues preloading, so we use the gif
@@ -84,6 +83,10 @@ const stimuliPresentationInstructionsHtml = `
   <h1>Get ready to listen</h1>
   <p>You will now hear a series of sound clips. Please listen to each carefully. Some sounds might be triggering, but you always have the option to skip if they are too uncomfortable.</p>
   <p>After each sound, you will be asked to rate the level of discomfort or anxiety you experienced while listening to it. You will also be asked to select which sound or sounds you think you heard.</p>
+`;
+
+const headsetRetryHtml = `
+  <p style="color:red;">You did not pass the check. Please read the instructions carefully and try again.</p>
 `;
 
 const headsetInstructionsHtml = `
@@ -242,11 +245,8 @@ const onDataUpdate = async (data) => {
 const preloadStatus = {}
 const backgroundPreload = (preloadSpec) => {
   const makeCallbacks = (fileType) => {
-    const onComplete = () => {
-      console.log(`Preloaded all ${fileType} files.`)
-    };
+    const onComplete = () => { };
     const onSingleComplete = (file) => {
-      console.log(`Preloaded ${fileType} file: ${file}`);
       preloadStatus[file] = true;
     };
     const onError = (file) => {
@@ -342,6 +342,7 @@ const ensureConditionAB = async () => {
 
 
 /* === Initialize === */
+const mainTimeline = []; // Define now (so it can be dynamically modified), set in the end.
 const isJATOS = typeof window.jatos !== "undefined";
 if (!isJATOS) {
   alert("An error occurred while initializing the experiment. Please try again later. (Code: No JATOS)");
@@ -626,53 +627,6 @@ const sampleHeadsetTest = async () => {
   return shuffled.slice(0, nHeadsetTrials);
 };
 
-const headsetInstructionsPage = {
-  type: jsPsychHtmlButtonResponse,
-  data: {
-    doNotSave: true,
-    trialName: "headsetInstructions",
-  },
-  stimulus: headsetInstructionsHtml,
-  choices: ["Continue"],
-};
-
-const headsetPresentPage = {
-    type: jsPsychAudioButtonResponse,
-    data: {
-      trialName: "headsetPresentation",
-      stimulusId: jsPsych.timelineVariable("stimulusId"),
-      repitionIdentifierVariable: "stimulusId",
-    },
-    stimulus: jsPsych.timelineVariable("wavUrl"),
-    trial_duration: jsPsych.timelineVariable("durationMs"),
-    choices: [],
-    prompt: soundPlayingHtml,
-};
-
-const headsetAnswerPage = {
-  type: jsPsychSurveyHtmlForm,
-  data: {
-    trialName: "headsetTest",
-    stimulusId: jsPsych.timelineVariable("stimulusId"),
-    repitionIdentifierVariable: "stimulusId",
-  },
-  html: () => {
-    // One button per option. WShould submit immediately on selection.
-    const options = jsPsych.evaluateTimelineVariable("options");
-    return `
-      <fieldset class="form-group">
-        <legend class="form-label">Which sound did you hear?</legend>
-        ${options.map((opt, i) => `
-          <div class="form-check">
-            <input class="form-check-input" type="radio" name="headset_answer" id="option-${i}" value="${opt.name}" required />
-            <label class="form-check-label" for="option-${i}">${opt.name}</label>
-          </div>
-        `).join("")}
-      </fieldset>
-    `;
-  },
-  button_label: "Continue",
-};
 
 const generateHeadsetTestProcedure = async (sampledHeadsetStimuli) => {
   // Get studySessionData -> completedHeadset
@@ -681,13 +635,100 @@ const generateHeadsetTestProcedure = async (sampledHeadsetStimuli) => {
     return [];
   }
 
+  const isRetry = await getStudyState("completedHeadset", null) === false;
+
+  let numCorrect = 0;
+
+  const headsetInstructionsPage = {
+    type: jsPsychHtmlButtonResponse,
+    data: {
+      doNotSave: true,
+      trialName: "headsetInstructions",
+    },
+    stimulus: `
+      <div class="custom-content-container">
+        ${isRetry ? headsetRetryHtml : ''}
+        ${headsetInstructionsHtml}
+      </div>
+    `,
+    choices: ["Continue"],
+  };
+
+  const headsetPresentPage = {
+      type: jsPsychAudioButtonResponse,
+      data: {
+        doNotSave: true,
+        trialName: "headsetPresentation",
+        stimulusId: jsPsych.timelineVariable("stimulusId"),
+        repitionIdentifierVariable: "stimulusId",
+      },
+      stimulus: jsPsych.timelineVariable("wavUrl"),
+      trial_duration: jsPsych.timelineVariable("durationMs"),
+      choices: [],
+      prompt: soundPlayingHtml,
+  };
+
+  const headsetAnswerPage = {
+    type: jsPsychSurveyHtmlForm,
+    data: {
+      doNotSave: true,
+      trialName: "headsetAnswer",
+      stimulusId: jsPsych.timelineVariable("stimulusId"),
+      repitionIdentifierVariable: "stimulusId",
+    },
+    html: () => {
+      // One button per option. WShould submit immediately on selection.
+      const options = jsPsych.evaluateTimelineVariable("options");
+      return `
+        <fieldset class="form-group">
+          <legend class="form-label">Which sound did you hear?</legend>
+          ${options.map((opt, i) => `
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="headsetIsCorrect" id="option-${i}" value="${opt.correct}" required />
+              <label class="form-check-label" for="option-${i}">${opt.name}</label>
+            </div>
+          `).join("")}
+        </fieldset>
+      `;
+    },
+    on_finish: (data) => {
+      if (data.response.headsetIsCorrect === "true") {
+        numCorrect += 1;
+      }
+    },
+    button_label: "Continue",
+  };
+
   const headsetTestTimeline = {
     timeline: [preloadPage, headsetPresentPage, headsetAnswerPage],
     randomize_order: true,
     timeline_variables: sampledHeadsetStimuli,
   };
 
-  return [ headsetInstructionsPage, headsetTestTimeline ];
+  const headsetEvaluatePage = {
+    type: jsPsychCallFunction,
+    data: {
+      trialName: "headsetTestEvaluation",
+    },
+    async: true,
+    func: async (done) => {
+      const passed = numCorrect >= nRequiredHeadsetToPass;
+      console.log(`Headset test completed: ${numCorrect} correct out of ${sampledHeadsetStimuli.length}. Passed: ${passed}`);
+
+      if (passed) {
+        setStudyState("completedHeadset", () => true);
+        return done({passed: true});
+      }
+
+      setStudyState("completedHeadset", () => false);
+      const newSamples = await sampleHeadsetTest();
+      const retryHeadsetTestProcedure = await generateHeadsetTestProcedure(newSamples);
+      mainTimeline.unshift(...retryHeadsetTestProcedure);
+      done({passed: false});
+    },
+  };
+
+  return [ headsetInstructionsPage, headsetTestTimeline, headsetEvaluatePage ];
 };
 
 
@@ -766,7 +807,7 @@ const stimulusRatePage = {
 };
 
 /* = Stimulus procedure timeline = */
-const stimulusProcedureTimeline = [preloadPage, headsetPresentPage, stimulusRatePage];
+const stimulusProcedureTimeline = [preloadPage, stimulusPresentPage, stimulusRatePage];
 const generateStimulusPresentation = async (missingStimuli) => {
   const firstAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "first");
   const lastAnchorStimuli = missingStimuli.filter(s => s.anchorPosition === "last");
@@ -907,7 +948,7 @@ window.jatos.onLoad(async () => {
   console.log(`Completed stimuli:`, allStimuliForCondition.length - missingStimuli.length);
   console.log(`Files to preload:`, filesToPreload);
 
-  const timeline = [
+  mainTimeline.push(
     ...await includeIfNotCompleted(welcomeConsentPage),
     ...await includeIfNotCompleted(demographicsPage),
     ...await includeIfNotCompleted(triggerDeclarePage),
@@ -915,10 +956,10 @@ window.jatos.onLoad(async () => {
     ...await generateHeadsetTestProcedure(sampledHeadsetStimuli),
     ...await generateStimulusPresentation(missingStimuli),
     thanksPage
-  ];
+  );
 
-  console.log("Final timeline:", timeline);
+  console.log("Final timeline:", mainTimeline);
 
-  jsPsych.run(timeline);
+  jsPsych.run(mainTimeline);
 });
 
