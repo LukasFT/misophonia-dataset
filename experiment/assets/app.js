@@ -61,7 +61,7 @@ const privacyPolicyLink = `privacy.html`;
 const welcomeConsentHtml = `
   <h1>Misophonia Study</h1>
   <p>Misophonia is a condition where specific everyday sounds, such as chewing and pen clicking, provoke strong discomfort.</p>
-  <p>We are creating a dataset of sound mixes that can be used to develop noise-cancelling headphones that selectively filter out misophonia trigger sounds.</p>
+  <p>We are creating a dataset of audio clips that can be used to develop noise-cancelling headphones that selectively filter out misophonia trigger sounds.</p>
   <p>By participating in this study and rating short audio clips, you will help validate this dataset so it can be openly released for anyone to build on.</p>
 
   <h2>Instructions</h2>
@@ -356,6 +356,69 @@ const jsPsych = initJsPsych({
 });
 
 
+/* === Helpers for HTML structures === */
+const makeFieldset = (categories, legend, hint, name) => `
+  <fieldset class="rating-fieldset" style="margin-top:2rem;" aria-labelledby="cat-legend">
+    <legend class="rating-legend" id="cat-legend">
+      ${legend}
+    </legend>
+
+    <p class="rating-hint">${hint}</p>
+
+    <input type="hidden" name="${name}" id="${name}-hidden" required />
+    <input type="text" id="${name}" name="${name}" required autocomplete="off" class="visually-hidden-validator" />
+
+    <div class="rating-stack" role="group" aria-label="Sound category (choose one or more)">
+      ${categories.map(item => {
+        return `
+          <div class="rating-option">
+            <input class="rating-input category-input" type="checkbox"
+                    id="${item.val}" value="${item.val}" data-exclusivity-group="${item.exclusivityGroup}" />
+            <label class="rating-label" for="${item.val}">
+              <span class="rating-text">${item.name}</span>
+            </label>
+          </div>`;
+      }).join("")}
+    </div>
+  </fieldset>
+`;
+
+const fieldsetOnLoad = (name) => {
+  return () => {
+    const hidden = document.getElementById(name);
+    const boxes = Array.from(document.querySelectorAll('.category-input'));
+
+    function syncState(changed) {
+      // Enforce only one exclusivity group selected
+      if (changed) {
+        const changedGroup = changed.getAttribute("data-exclusivity-group");
+        boxes.forEach(b => {
+          if (b !== changed && b.getAttribute("data-exclusivity-group") !== changedGroup) {
+            b.checked = false;
+          }
+        });
+      }
+
+      // Collect selected values
+      const selected = boxes.filter(b => b.checked).map(b => b.value);
+
+      // Required: at least one selected
+      if (selected.length === 0) {
+        hidden.value = "";
+        hidden.setCustomValidity("Please select at least one category.");
+      } else {
+        hidden.value = JSON.stringify(selected); // saved as a JSON array string
+        hidden.setCustomValidity("");
+      }
+    }
+
+    boxes.forEach(b => b.addEventListener('change', () => syncState(b)));
+    // Initialize validity on page load
+    syncState(null);
+  }
+}
+
+
 /*
 *** EXPERIMENT TIMELINE DEFINITIONS ***
 */
@@ -505,66 +568,6 @@ const generateDMQProcedure = async () => {
 };
 
 
-/* === Helpers for trigger category selection === */
-const makeTriggerCategoryFieldset = (triggerCategories, legend) => `
-  <fieldset class="rating-fieldset" style="margin-top:2rem;" aria-labelledby="cat-legend">
-    <legend class="rating-legend" id="cat-legend">
-      ${legend}
-    </legend>
-
-    <p class="rating-hint">Select one or more options.</p>
-
-    <input type="hidden" name="trigger_categories" id="trigger-categories-hidden" required />
-    <input type="text" id="trigger-categories" name="trigger_categories" required autocomplete="off" class="visually-hidden-validator" />
-
-    <div class="rating-stack" role="group" aria-label="Sound category (choose one or more)">
-      ${triggerCategories.map((cat, i) => {
-        const id = `cat-${i}`;
-        const isNone = cat === "None of the above";
-        return `
-          <div class="rating-option">
-            <input class="rating-input category-input" type="checkbox"
-                    id="${id}" value="${cat}" data-none="${isNone ? '1' : '0'}" />
-            <label class="rating-label" for="${id}">
-              <span class="rating-text">${cat}</span>
-            </label>
-          </div>`;
-      }).join("")}
-    </div>
-  </fieldset>
-`;
-const triggerCategoryOnLoad = () => {
-  const hidden = document.getElementById('trigger-categories');
-  const boxes = Array.from(document.querySelectorAll('.category-input'));
-  const noneBox = boxes.find(b => b.dataset.none === '1');
-
-  function syncState(changed) {
-    // Enforce “None of the above” mutual exclusivity
-    if (changed && changed === noneBox && noneBox.checked) {
-      boxes.forEach(b => { if (b !== noneBox) b.checked = false; });
-    } else if (changed && changed !== noneBox && changed.checked) {
-      if (noneBox) noneBox.checked = false;
-    }
-
-    // Collect selected values
-    const selected = boxes.filter(b => b.checked).map(b => b.value);
-
-    // Required: at least one selected
-    if (selected.length === 0) {
-      hidden.value = "";
-      hidden.setCustomValidity("Please select at least one category.");
-    } else {
-      hidden.value = JSON.stringify(selected); // saved as a JSON array string
-      hidden.setCustomValidity("");
-    }
-  }
-
-  boxes.forEach(b => b.addEventListener('change', () => syncState(b)));
-  // Initialize validity on page load
-  syncState(null);
-}
-
-
 /* === Trigger declaration === */
 const triggerDeclarePage = {
   type: jsPsychSurveyHtmlForm,
@@ -574,8 +577,16 @@ const triggerDeclarePage = {
   preamble: `
     <p class="dmq-intro">${dmqIntro}</p>
   `,
-  html: makeTriggerCategoryFieldset(triggerCategories.concat(["Others", "None of the above"]), "Select the sounds and/or sights that bother you much more intensely than they do most other people."),
-  on_load: triggerCategoryOnLoad,
+  html: makeFieldset(
+    triggerCategories
+      .map(c => { return { name: c, val: c, exclusivityGroup: "cat" }; })
+      .concat([{ name: "Others", val: "Others", exclusivityGroup: "cat" }, { name: "None of the above", val: "None", exclusivityGroup: "None" }])
+    ,
+    "Select the sounds and/or sights that bother you much more intensely than they do most other people.",
+    "Select one or more options.",
+    "trigger-categories"
+  ),
+  on_load: fieldsetOnLoad("trigger-categories"),
 };
 
 
@@ -628,14 +639,14 @@ const sampleHeadsetTest = async () => {
 };
 
 
-const generateHeadsetTestProcedure = async (sampledHeadsetStimuli) => {
+const generateHeadsetTestProcedure = async (sampledHeadsetStimuli, isRetry) => {
   // Get studySessionData -> completedHeadset
   const hasCompletedHeadset = await getStudyState("completedHeadset", false);
   if (hasCompletedHeadset) {
     return [];
   }
 
-  const isRetry = await getStudyState("completedHeadset", null) === false;
+  isRetry = isRetry || await getStudyState("completedHeadset", null) === false;
 
   let numCorrect = 0;
 
@@ -679,20 +690,17 @@ const generateHeadsetTestProcedure = async (sampledHeadsetStimuli) => {
     html: () => {
       // One button per option. WShould submit immediately on selection.
       const options = jsPsych.evaluateTimelineVariable("options");
-      return `
-        <fieldset class="form-group">
-          <legend class="form-label">Which sound did you hear?</legend>
-          ${options.map((opt, i) => `
-            <div class="form-check">
-              <input class="form-check-input" type="radio" name="headsetIsCorrect" id="option-${i}" value="${opt.correct}" required />
-              <label class="form-check-label" for="option-${i}">${opt.name}</label>
-            </div>
-          `).join("")}
-        </fieldset>
-      `;
+      return makeFieldset(
+        options.map(o => { return { name: o.name, val: `${o.name}-${o.correct ? "true" : "false"}`, exclusivityGroup: o.name }; }),
+        "Select the sound you heard",
+        "Select one option.",
+        "headsetIsCorrect"
+      );
     },
+    on_load: fieldsetOnLoad("headsetIsCorrect"),
     on_finish: (data) => {
-      if (data.response.headsetIsCorrect === "true") {
+      const isCorrect = data.response.headsetIsCorrect.endsWith(`true"]`)
+      if (isCorrect) {
         numCorrect += 1;
       }
     },
@@ -717,14 +725,15 @@ const generateHeadsetTestProcedure = async (sampledHeadsetStimuli) => {
 
       if (passed) {
         setStudyState("completedHeadset", () => true);
-        return done({passed: true});
+        return done({passed: true, numCorrect: numCorrect});
       }
 
       setStudyState("completedHeadset", () => false);
       const newSamples = await sampleHeadsetTest();
-      const retryHeadsetTestProcedure = await generateHeadsetTestProcedure(newSamples);
+      const retryHeadsetTestProcedure = await generateHeadsetTestProcedure(newSamples, true);
+      console.log("Retrying headset test procedure:", retryHeadsetTestProcedure);
       mainTimeline.unshift(...retryHeadsetTestProcedure);
-      done({passed: false});
+      done({passed: false, numCorrect: numCorrect});
     },
   };
 
@@ -796,14 +805,16 @@ const stimulusRatePage = {
 
 
     ${
-      makeTriggerCategoryFieldset(
-        triggerCategories.concat(["None of the above"]),
-        "Which of the following categories did the sound you just heard belong to?"
+      makeFieldset(
+        triggerCategories.map(c => { return { name: c, val: c, exclusivityGroup: "cat" }; }).concat([{ name: "None of the above", val: "None", exclusivityGroup: "None" }]),
+        "Which of the following categories did the sound you just heard belong to?",
+        "Select one or more options.",
+        "trigger-categories"
       )
     }
   `,
   button_label: "Play next sound",
-  on_load: triggerCategoryOnLoad,
+  on_load: fieldsetOnLoad("trigger-categories"),
 };
 
 /* = Stimulus procedure timeline = */
