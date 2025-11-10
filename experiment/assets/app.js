@@ -370,13 +370,17 @@ const makeFieldset = (categories, legend, hint, name) => `
 
     <div class="rating-stack" role="group" aria-label="Sound category (choose one or more)">
       ${categories.map(item => {
+        const otherDetailsId = item.isOther ? `${item.val}-other-details` : null;
         return `
           <div class="rating-option">
             <input class="rating-input category-input" type="checkbox"
-                    id="${item.val}" value="${item.val}" data-exclusivity-group="${item.exclusivityGroup}" />
+                    id="${item.val}" value="${item.val}" data-exclusivity-group="${item.exclusivityGroup}" data-other-details-id="${otherDetailsId}" />
             <label class="rating-label" for="${item.val}">
               <span class="rating-text">${item.name}</span>
             </label>
+            ${ otherDetailsId ? `
+                <input type="text" id="${otherDetailsId}" class="rating-other-input" placeholder="Please specify. Separate by comma" style="display:none;" />
+              ` : "" }
           </div>`;
       }).join("")}
     </div>
@@ -402,17 +406,32 @@ const fieldsetOnLoad = (name) => {
       // Collect selected values
       const selected = boxes.filter(b => b.checked).map(b => b.value);
 
+      document.querySelectorAll('.rating-other-input').forEach(input => {
+        if (boxes.find(b => b.getAttribute("data-other-details-id") === input.id).checked) {
+          input.style.display = "block";
+        } else {
+          input.style.display = "none";
+        }
+      });
+      const otherDetails = Array.from(document.querySelectorAll('.rating-other-input'))
+        .filter(i => i.style.display !== "none")
+        .map(input => {
+          const val = input.value.trim();
+          return { otherId: input.id, otherDetails: val };
+        });
+
       // Required: at least one selected
       if (selected.length === 0) {
         hidden.value = "";
         hidden.setCustomValidity("Please select at least one category.");
       } else {
-        hidden.value = JSON.stringify(selected); // saved as a JSON array string
+        hidden.value = JSON.stringify(selected.concat(otherDetails)); // saved as a JSON array string
         hidden.setCustomValidity("");
       }
     }
 
     boxes.forEach(b => b.addEventListener('change', () => syncState(b)));
+    Array.from(document.querySelectorAll('.rating-other-input')).forEach(i => i.addEventListener('input', () => syncState(null)));
     // Initialize validity on page load
     syncState(null);
   }
@@ -580,7 +599,8 @@ const triggerDeclarePage = {
   html: makeFieldset(
     triggerCategories
       .map(c => { return { name: c, val: c, exclusivityGroup: "cat" }; })
-      .concat([{ name: "Others", val: "Others", exclusivityGroup: "cat" }, { name: "None of the above", val: "None", exclusivityGroup: "None" }])
+      .concat([{ name: "Others", val: "Others", exclusivityGroup: "cat", isOther: true },
+        { name: "None of the above", val: "None", exclusivityGroup: "None" }])
     ,
     "Select the sounds and/or sights that bother you much more intensely than they do most other people.",
     "Select one or more options.",
@@ -655,6 +675,7 @@ const generateHeadsetTestProcedure = async (sampledHeadsetStimuli, isRetry) => {
     data: {
       doNotSave: true,
       trialName: "headsetInstructions",
+      isHeadsetTest: true,
     },
     stimulus: `
       <div class="custom-content-container">
@@ -670,6 +691,7 @@ const generateHeadsetTestProcedure = async (sampledHeadsetStimuli, isRetry) => {
       data: {
         doNotSave: true,
         trialName: "headsetPresentation",
+        isHeadsetTest: true,
         stimulusId: jsPsych.timelineVariable("stimulusId"),
         repitionIdentifierVariable: "stimulusId",
       },
@@ -684,6 +706,7 @@ const generateHeadsetTestProcedure = async (sampledHeadsetStimuli, isRetry) => {
     data: {
       doNotSave: true,
       trialName: "headsetAnswer",
+      isHeadsetTest: true,
       stimulusId: jsPsych.timelineVariable("stimulusId"),
       repitionIdentifierVariable: "stimulusId",
     },
@@ -709,7 +732,10 @@ const generateHeadsetTestProcedure = async (sampledHeadsetStimuli, isRetry) => {
 
   const headsetTestTimeline = {
     timeline: [preloadPage, headsetPresentPage, headsetAnswerPage],
-    randomize_order: true,
+    data: {
+      isHeadsetTest: true,
+    },
+    randomize_order: false,
     timeline_variables: sampledHeadsetStimuli,
   };
 
@@ -717,6 +743,7 @@ const generateHeadsetTestProcedure = async (sampledHeadsetStimuli, isRetry) => {
     type: jsPsychCallFunction,
     data: {
       trialName: "headsetTestEvaluation",
+      isHeadsetTest: true,
     },
     async: true,
     func: async (done) => {
@@ -732,7 +759,10 @@ const generateHeadsetTestProcedure = async (sampledHeadsetStimuli, isRetry) => {
       const newSamples = await sampleHeadsetTest();
       const retryHeadsetTestProcedure = await generateHeadsetTestProcedure(newSamples, true);
       console.log("Retrying headset test procedure:", retryHeadsetTestProcedure);
-      mainTimeline.unshift(...retryHeadsetTestProcedure);
+      const currentHeadsetTests = mainTimeline.findIndex(t => t.data?.isHeadsetTest);
+      const headsetTestLength = mainTimeline.filter(t => t.data?.isHeadsetTest).length;
+      mainTimeline.splice(currentHeadsetTests, headsetTestLength, ...retryHeadsetTestProcedure);
+      mainTimeline.unshift(...Array(headsetTestLength).fill({})); // Add headsetTestLength empty elements to the beginning of the timeline to keep the timeline index correct
       done({passed: false, numCorrect: numCorrect});
     },
   };
