@@ -49,9 +49,9 @@ Object.values(stimuliAB).forEach(g => addWavUrlsToStimuli(g));
 addWavUrlsToStimuli(allHeadsetTestStimuli);
 
 const triggerCategories = [
-  "Chewing",
-  "Plastic Crumbling",
-  "Pen Clicking",
+  { name: "Chewing", soundExample: `${soundBaseUrl}example-chewing.wav` },
+  { name: "Plastic Crumbling", soundExample: `${soundBaseUrl}example-plastic-crumpling.wav` },
+  { name: "Pen Clicking" },
 ];
 
 // const soundPlayingMp4 = `${staticBase}sound-playing.mp4`; // Experienced some issues preloading, so we use the gif
@@ -102,6 +102,13 @@ const copyrightCredits = `
 
 const contactInfo = `
   Contact <a href="mailto:lukt@itu.dk">lukt@itu.dk</a> for any questions or concerns regarding this study. Also refer to our <a href="${privacyPolicyLink}" target="_blank">Privacy Policy</a>.
+`;
+
+const exampleSoundPlayHtml = `<div>&#9658; Example</div>`;
+const soundPlayingImgHtml = `<img src="${soundPlayingGif}" alt="Sound playing animation" style="max-width: 150px; max-height: 100%;" />`;
+const soundPlayingHtml = `
+  <p>Please listen to the sound playing</p>
+  ${soundPlayingImgHtml}
 `;
 
 
@@ -372,16 +379,27 @@ const makeFieldset = (categories, legend, hint, name) => `
       ${categories.map(item => {
         const otherDetailsId = item.isOther ? `${item.val}-other-details` : null;
         return `
-          <div class="rating-option">
-            <input class="rating-input category-input" type="checkbox"
-                    id="${item.val}" value="${item.val}" data-exclusivity-group="${item.exclusivityGroup}" data-other-details-id="${otherDetailsId}" />
-            <label class="rating-label" for="${item.val}">
-              <span class="rating-text">${item.name}</span>
-            </label>
-            ${ otherDetailsId ? `
-                <input type="text" id="${otherDetailsId}" class="rating-other-input" placeholder="Please specify. Separate by comma" style="display:none;" />
-              ` : "" }
-          </div>`;
+          <div class="rating-option-container">
+            <div class="rating-option">
+              <input class="rating-input category-input" type="checkbox"
+                      id="${item.val}" value="${item.val}" data-exclusivity-group="${item.exclusivityGroup}" data-other-details-id="${otherDetailsId}" />
+              <label class="rating-label" for="${item.val}">
+                <span class="rating-text">${item.name}</span>
+              </label>
+              ${ otherDetailsId ? `
+                  <input type="text" id="${otherDetailsId}" class="rating-other-input" placeholder="Please specify. Separate by comma" style="display:none;" />
+                ` : "" }
+            </div>
+
+            ${ item.soundExample ? `
+              <div class="example-audio-container">
+                <div class="example-audio-control" data-audio-id="${item.val}-audio">${exampleSoundPlayHtml}</div>
+                <audio id="${item.val}-audio" src="${item.soundExample}"></audio>
+              </div>
+          ` : "" }
+
+          </div>
+        `;
       }).join("")}
     </div>
   </fieldset>
@@ -434,6 +452,52 @@ const fieldsetOnLoad = (name) => {
     Array.from(document.querySelectorAll('.rating-other-input')).forEach(i => i.addEventListener('input', () => syncState(null)));
     // Initialize validity on page load
     syncState(null);
+
+    // Onclick example-audio-control
+    const stopAudioPlayback = (audioElem, control) => {
+      audioElem.pause();
+      control.innerHTML = exampleSoundPlayHtml;
+
+    };
+    const startAudioPlayback = (audioElem, control) => {
+      // Look at me not caring to learn actualy CSS LOL
+      const maxHeight = control.parentElement.parentElement.querySelector(".rating-option .rating-label").getBoundingClientRect().height;
+      console.log("Setting audio control height to:", maxHeight);
+      control.parentElement.style.height = `${maxHeight}px`;
+
+      // If currently playing, end
+      if (!audioElem.paused) {
+        stopAudioPlayback(audioElem, control);
+        audioElem.currentTime = 0;
+      }
+      else {
+        audioElem.currentTime = 0;
+        audioElem.play();
+        control.innerHTML = soundPlayingImgHtml;
+        audioElem.onended = () => stopAudioPlayback(audioElem, control);
+      }
+    };
+
+    document.querySelectorAll('.example-audio-control').forEach(control => {
+      control.addEventListener('click', () => {
+        // Set soundPlayingImgHtml
+        const previousInnerHTML = control.innerHTML;
+        control.innerHTML = soundPlayingImgHtml;
+        const audioId = control.getAttribute('data-audio-id');
+        const audioElem = document.getElementById(audioId);
+
+        // Stop others
+        document.querySelectorAll('.example-audio-control').forEach(otherControl => {
+          if (otherControl !== control) {
+            const otherAudioId = otherControl.getAttribute('data-audio-id');
+            const otherAudioElem = document.getElementById(otherAudioId);
+            stopAudioPlayback(otherAudioElem, otherControl);
+          }
+        });
+
+        startAudioPlayback(audioElem, control);
+      });
+    });
   }
 }
 
@@ -598,7 +662,7 @@ const triggerDeclarePage = {
   `,
   html: makeFieldset(
     triggerCategories
-      .map(c => { return { name: c, val: c, exclusivityGroup: "cat" }; })
+      .map(c => { return { name: c.name, val: c.name, exclusivityGroup: "cat", soundExample: c.soundExample }; })
       .concat([{ name: "Others", val: "Others", exclusivityGroup: "cat", isOther: true },
         { name: "None of the above", val: "None", exclusivityGroup: "None" }])
     ,
@@ -646,12 +710,7 @@ const preloadPage = {
     document.querySelector("#jspsych-root").innerHTML = ``;
     done({});
   }
-}
-
-const soundPlayingHtml = `
-  <p>Please listen to the sound playing</p>
-  <img src="${soundPlayingGif}" alt="Sound playing animation" style="max-width: 150px;">
-`;
+};
 
 const sampleHeadsetTest = async () => {
   const shuffled = allHeadsetTestStimuli.sort(() => 0.5 - Math.random());
@@ -836,7 +895,9 @@ const stimulusRatePage = {
 
     ${
       makeFieldset(
-        triggerCategories.map(c => { return { name: c, val: c, exclusivityGroup: "cat" }; }).concat([{ name: "None of the above", val: "None", exclusivityGroup: "None" }]),
+        triggerCategories
+          .map(c => { return { name: c.name, val: c.name, exclusivityGroup: "cat" }; })
+          .concat([{ name: "None of the above", val: "None", exclusivityGroup: "None" }]),
         "Which of the following categories did the sound you just heard belong to?",
         "Select one or more options.",
         "trigger-categories"
