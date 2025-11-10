@@ -226,8 +226,5 @@ pyrightconfig.json
 notebooks/playground/
 !notebooks/playground/.gitkeep
 playground.py
-
-
-# Data
 data/*
 !data/.gitkeep
