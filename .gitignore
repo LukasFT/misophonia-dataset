@@ -226,5 +226,4 @@ pyrightconfig.json
 notebooks/playground/
 !notebooks/playground/.gitkeep
 playground.py
-data/FSD50K.dev_audio
-data/FSD50K.eval_audio
+data
