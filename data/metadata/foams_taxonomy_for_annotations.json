@@ -1,0 +1,272 @@
+{
+    "sounds": {
+        "name_for_plot": "Sounds",
+        "parents": []
+    },
+    "human": {
+        "name_for_plot": "Human",
+        "parents": [
+            "sounds"
+        ]
+    },
+    "nature": {
+        "name_for_plot": "Nature",
+        "parents": [
+            "sounds"
+        ]
+    },
+    "mechanical": {
+        "name_for_plot": "Mechanical",
+        "parents": [
+            "sounds"
+        ]
+    },
+    "music": {
+        "name_for_plot": "Music",
+        "parents": [
+            "sounds"
+        ]
+    },
+    "ambience": {
+        "name_for_plot": "Ambience",
+        "parents": [
+            "sounds"
+        ]
+    },
+    "oral_nasal": {
+        "name_for_plot": "Oral/nasal",
+        "parents": [
+            "human"
+        ]
+    },
+    "hands_arms": {
+        "name_for_plot": "Hands/arms",
+        "parents": [
+            "human"
+        ]
+    },
+    "feet_legs": {
+        "name_for_plot": "Feet/legs",
+        "parents": [
+            "human"
+        ]
+    },
+    "animal": {
+        "name_for_plot": "Animal",
+        "parents": [
+            "nature"
+        ]
+    },
+    "nonanimal": {
+        "name_for_plot": "Non-animal",
+        "parents": [
+            "nature"
+        ]
+    },
+    "tapping": {
+        "name_for_plot": "tapping",
+        "parents": [
+            "feet_legs"
+        ]
+    },
+    "sipping_hot_liquid": {
+       "name_for_plot": "sipping hot liquid",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "slurping": {
+       "name_for_plot": "slurping",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "lip_smacks": {
+       "name_for_plot": "lip smacks",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "chewing_gum": {
+       "name_for_plot": "chewing gum",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "flipping_newspaper_pages": {
+       "name_for_plot": "flipping newspaper pages",
+       "parents": [
+           "hands_arms"
+        ]
+    }, 
+    "typing": {
+       "name_for_plot": "typing",
+       "parents": [
+           "hands_arms"
+        ]
+    },
+    "basketball_dribbling": {
+       "name_for_plot": "basketball dribbling",
+       "parents": [
+           "hands_arms"
+        ]
+    },
+    "knife_cutting": {
+       "name_for_plot": "knife cutting",
+       "parents": [
+           "hands_arms"
+        ]
+    },
+    "human_breathing": {
+       "name_for_plot": "human breathing",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "plastic_crumpling": {
+       "name_for_plot": "plastic crumpling",
+       "parents": [
+           "hands_arms"
+        ]
+    },
+    "water_drops": {
+       "name_for_plot": "water drops",
+       "parents": [
+           "nonanimal"
+        ]
+    },
+    "recording_artifact": {
+       "name_for_plot": "recording artifact",
+       "parents": [
+           "sounds"
+        ]
+    },
+    "talking": {
+       "name_for_plot": "talking",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "mouth_sounds_other": {
+       "name_for_plot": "mouth sounds other",
+       "parents": [
+           "oral_nasal"
+        ]
+    }, 
+    "sliding_ceramic": {
+       "name_for_plot": "sliding ceramic",
+       "parents": [
+           "hands_arms"
+        ]
+    },
+    "exhaling": {
+       "name_for_plot": "exhaling",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "squishing": {
+       "name_for_plot": "squishing",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "whimpering": {
+       "name_for_plot": "whimpering",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "tearing_paper": {
+       "name_for_plot": "tearing paper",
+       "parents": [
+           "hands_arms"
+        ]
+    },
+    "footsteps": {
+       "name_for_plot": "footsteps",
+       "parents": [
+           "feet_legs"
+        ]
+    },
+    "swallowing": {
+       "name_for_plot": "swallowing",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "birds_chirping": {
+       "name_for_plot": "birds chirping",
+       "parents": [
+           "animal"
+        ]
+    },
+    "clearing_throat": {
+       "name_for_plot": "clearing throat",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "coughing": {
+       "name_for_plot": "coughing",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "coffee_shop": {
+       "name_for_plot": "coffee shop",
+       "parents": [
+           "ambience"
+        ]
+    },
+    "harp": {
+       "name_for_plot": "harp",
+       "parents": [
+           "hands_arms",
+           "music"
+        ]
+    },
+    "hairdryer": {
+       "name_for_plot": "hairdryer",
+       "parents": [
+           "hands_arms"
+        ]
+    },
+    "clicking": {
+       "name_for_plot": "clicking",
+       "parents": [
+           "mechanical"
+        ]
+    },
+    "singing": {
+       "name_for_plot": "singing",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "artifact": {
+       "name_for_plot": "artifact",
+       "parents": [
+           "sounds"
+        ]
+    },
+    "laughing": {
+       "name_for_plot": "laughing",
+       "parents": [
+           "oral_nasal"
+        ]
+    },
+    "beeping": {
+       "name_for_plot": "beeping",
+       "parents": [
+           "mechanical"
+        ]
+    },
+    "drumming": {
+       "name_for_plot": "drumming",
+       "parents": [
+           "hands_arms"
+        ]
+    }
+}
+
