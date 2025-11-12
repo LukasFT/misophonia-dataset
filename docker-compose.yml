@@ -10,6 +10,7 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - .:/app
+      - ./data:/data
 
   # If you need to run your application with GPU/CUDA support:
   # > docker-compose up --profile=gpu
@@ -24,3 +25,49 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
+
+  experiment-jatos:
+    image: docker.io/jatos/jatos:3.9.7
+    restart: unless-stopped
+    profiles:
+      - experiment
+    volumes:
+      - ./data/experiment-jatos:/opt/jatos_data # General JATOS data
+      - ./experiment/assets:/opt/jatos_data/study_assets_root/misophonia-dataset:ro # Study assets
+      - ./data/experiment-jatos-logs:/opt/jatos/logs
+      - ./experiment/jatos.conf:/opt/jatos/conf/jatos.conf:ro
+    expose:
+      - "9000"
+    environment:
+      - JATOS_LOGS_APPENDER=ASYNCSTDOUT
+
+
+  experiment-caddy:
+    image: docker.io/library/caddy:2.10.2-alpine
+    restart: unless-stopped
+    profiles:
+      - experiment
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - ACME_AGREE=true
+      - EMAIL=lukt@itu.dk
+    volumes:
+      - ./experiment/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./experiment/assets:/srv/static:ro
+      - ./data/experiment-caddy-data:/data
+      - ./data/experiment-caddy-config:/config
+    depends_on:
+      - experiment-jatos
+
+
+  r-analysis:
+    build: ./r_analysis
+    profiles:
+      - r-analysis
+    volumes:
+      - ./r_analysis:/app
+      - ./data:/data
+
