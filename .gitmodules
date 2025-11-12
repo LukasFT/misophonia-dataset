@@ -1,0 +1,3 @@
+[submodule "Binamix"]
+	path = Binamix
+	url = https://github.com/QxLabIreland/Binamix.git
