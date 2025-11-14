@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FILES=("https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z01?download=1" "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z02?download=1" "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z03?download=1" "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z04?download=1" "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z05?download=1")
+FILES=("https://zenodo.org/records/4060432/files/FSD50K.dev_audio.zip?download=1" "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z01?download=1" "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z02?download=1" "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z03?download=1" "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z04?download=1" "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z05?download=1")
 
 #Download files
 
