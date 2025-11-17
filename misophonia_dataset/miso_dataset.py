@@ -157,6 +157,10 @@ class ESC50(SourceData):
         Returns:
             Full path to the dataset
         """
+        if os.path.exists("esc50-extracted.txt"):
+            print(f"ESC50 dataset has already been downloaded and unzipped at {save_dir}")
+            return Path(os.path.join(save_dir, "ESC-50-master"))
+
         url = "https://github.com/karoldvl/ESC-50/archive/master.zip"
 
         os.makedirs(save_dir, exist_ok=True)
@@ -169,31 +173,42 @@ class ESC50(SourceData):
         block_size = 1024 * 1024
 
         # Stream download to show progress
-        print("Downloading ESC-50 dataset...")
-        with (
-            open(local_zip_path, "wb") as file,
-            tqdm(
-                total=total_size,
-                unit="iB",
-                unit_scale=True,
-                desc="Downloading",
-                ascii=True,
-            ) as bar,
-        ):
-            for data in response.iter_content(block_size):
-                file.write(data)
-                bar.update(len(data))
+        if not os.path.exists("esc50-zip.txt"):
+            print("Downloading ESC-50 dataset...")
+            with (
+                open(local_zip_path, "wb") as file,
+                tqdm(
+                    total=total_size,
+                    unit="iB",
+                    unit_scale=True,
+                    desc="Downloading",
+                    ascii=True,
+                ) as bar,
+            ):
+                for data in response.iter_content(block_size):
+                    file.write(data)
+                    bar.update(len(data))
+        else:
+            print("ESC50 has already been downloaded. Proceeding to extraction.")
+
+            with open("esc50-zip.txt", "w") as f:
+                f.write("esc50 has been downloaded")
 
         print("Unzipping ESC-50 dataset...")
         with zipfile.ZipFile(local_zip_path, "r") as zip_ref:
             zip_ref.extractall(save_dir)
+
+        if os.path.isfile("esc50-zip.txt"):
+            os.rename("esc50-zip.txt", "esc50-extracted.txt")
 
         extracted_path = os.path.join(save_dir, "ESC-50-master")
         print(f"Dataset downloaded and extracted to: {extracted_path}")
 
         print("Deleting ESC-50 zip file...")
         os.remove(local_zip_path)
-        return extracted_path
+
+        self.path = os.path.join(extracted_path, "audio")
+        return Path(extracted_path)
 
     def get_metadata(self, extracted_path: Path) -> pd.DataFrame:
         """
@@ -217,8 +232,6 @@ class ESC50(SourceData):
         esc50_triggers.rename(columns={"category": "labels"}, inplace=True)
         esc50_triggers.loc[:, "isTrig"] = 1
 
-        # TODO: Add duration and amplitude to the metadata
-
         return esc50_triggers
 
     def delete(self) -> None:
@@ -228,6 +241,7 @@ class ESC50(SourceData):
 class FSD50K(SourceData):
     """
     Class for the FSD50K dev set. Data is downloaded from Zenodo, https://zenodo.org/records/4060432.
+    When downloading and unzipping the dataset, txt files are generated to track progress.
     Controls, triggers, and backgrounds are sampled from FSD50K.
     """
 
@@ -251,6 +265,10 @@ class FSD50K(SourceData):
         Returns:
             full path of saved dataset
         """
+        if os.path.exists("fsd50k-extracted.txt"):
+            print("FSD50K dataset has already been downloaded and unzipped")
+            return
+
         urls = [
             "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.zip?download=1",
             "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z01?download=1",
@@ -262,34 +280,30 @@ class FSD50K(SourceData):
 
         os.makedirs(save_dir, exist_ok=True)
 
-        # with ThreadPoolExecutor(max_workers=3) as executor:
-        #     zip_files = list(executor.map(lambda url: download_file(url, save_dir), urls))
+        if not os.path.exists("fsd50k-zip.txt"):
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                zip_files = list(executor.map(lambda url: download_file(url, save_dir), urls))
 
-        zip_files = [
-            "../data/FSD50K.dev_audio.z01",
-            "../data/FSD50K.dev_audio.z02",
-            "../data/FSD50K.dev_audio.z03",
-            "../data/FSD50K.dev_audio.z04",
-            "../data/FSD50K.dev_audio.z05",
-            "../data/FSD50K.dev_audio.zip",
-        ]
+            # subprocess.run(["zip", "-s", "0", split_zip, "--out", unsplit_zip], check=True)
 
-        # subprocess.run(["zip", "-s", "0", split_zip, "--out", unsplit_zip], check=True)
+            fragments = list(Path("../data").glob("FSD50K.dev_audio.*"))
 
-        fragments = list(Path("../data").glob("FSD50K.dev_audio.*"))
+            # sort: main .zip first, then the rest
+            fragments = sorted(fragments, key=lambda p: (p.suffix != ".zip", p.suffix))
+            print(fragments)
+            unsplit_zip = Path("../data/unsplit.zip")
+            with open(unsplit_zip, "wb") as outfile:
+                for frag in fragments:
+                    with open(frag, "rb") as infile:
+                        shutil.copyfileobj(infile, outfile, length=16 * 1024 * 1024)
 
-        # sort: main .zip first, then the rest
-        fragments = sorted(fragments, key=lambda p: (p.suffix != ".zip", p.suffix))
-        print(fragments)
-        unsplit_zip = Path("../data/unsplit.zip")
-        with open(unsplit_zip, "wb") as outfile:
-            for frag in fragments:
-                with open(frag, "rb") as infile:
-                    shutil.copyfileobj(infile, outfile, length=16 * 1024 * 1024)
-
+            with open("fsd50k-zip.txt", "w") as f:
+                f.write("fsd50k downloaded.")
+        else:
+            print("FSD50K dataset has already been downloaded. Proceeding to extraction.")
         # First remove component zip files
-        # for file in zip_files:
-        #     os.remove(file)
+        for file in zip_files:
+            os.remove(file)
 
         print("Unzipping FSD50K dataset...")
         with zipfile.ZipFile(unsplit_zip, "r") as zip_ref:
@@ -297,7 +311,10 @@ class FSD50K(SourceData):
 
         # Deleting zip files
         print("Deleting FSD50K zip file...")
-        zip_files.append(unsplit_zip)
+        os.remove(unsplit_zip)
+
+        if os.path.isfile("fsd50k-zip.txt"):
+            os.rename("fsd50k-zip.txt", "fsd50k-extracted.txt")
 
         extracted_path = os.path.join(save_dir, "FSD50K.dev_audio")
         return Path(extracted_path)
@@ -372,19 +389,24 @@ class FOAMS(SourceData):
 
     def download_data(self, save_dir: Path) -> Path:
         """
-        Download 50 trigger samples from FOAMS at https://zenodo.org/records/7109069/files/.
+        Download 50 trigger samples from FOAMS at https://zenodo.org/records/7109069/files/. First checks if they have been downloaded alrady.
         Params:
             save_dir
         """
         url = "https://zenodo.org/records/7109069/files/FOAMS_processed_audio.zip?download=1"
+        if not os.path.exists("foams-extracted.txt"):
+            unzipped_data = download_file(url, save_dir)
 
-        unzipped_data = download_file(url, save_dir)
+            with zipfile.ZipFile(unzipped_data, "r") as zip_ref:
+                zip_ref.extractall(save_dir)
 
-        with zipfile.ZipFile(unzipped_data, "r") as zip_ref:
-            zip_ref.extractall(save_dir)
+            with open("foams_extracted.txt", "w") as f:
+                f.write("Downloaded and extracted FOAMS dataset.")
 
-        print("Removing FOAMS zip...")
-        os.remove(unzipped_data)
+            print("Removing FOAMS zip...")
+            os.remove(unzipped_data)
+        else:
+            print("FOAMS dataset has already been downloaded and unzipped.")
 
         return Path(os.path.join(save_dir, "FOAMS_processed_audio"))
 
