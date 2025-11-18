@@ -26,6 +26,7 @@ RUN apt-get update \
       git \
       bash \
       fish \
+      p7zip-full \
     # * Remove apt cache to reduce image size
     && rm -rf /var/lib/apt/lists/*
 

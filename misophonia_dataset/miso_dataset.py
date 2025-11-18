@@ -5,6 +5,8 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
+import hashlib
+import subprocess
 
 import numpy as np
 import pandas as pd
@@ -14,7 +16,7 @@ from tqdm import tqdm
 from time import time
 
 
-def download_file(url: str, save_dir: Path) -> Path:
+def download_file(url: str, md5: str, save_dir: Path) -> Path:
     """
     Helper function to download large files from the web. Displays progress bar and provides resume support.
     Used primarily for FSD50K and FSD50K_eval datasets.
@@ -92,8 +94,19 @@ def download_file(url: str, save_dir: Path) -> Path:
             print(f"Retrying in {sleep_time:.1f} seconds...")
             time.sleep(sleep_time)
 
+    # Check integrity of files
+    assert check_md5(Path(save_path), md5)
+
     # Should never reach here
     return Path(save_path)
+
+
+def check_md5(file: Path, md5: str) -> bool:
+    with open(file, "rb") as f:
+        data = f.read()
+        md5_hash = hashlib.md5(data).hexdigest()
+
+    return md5_hash == md5
 
 
 def merge_zip_files(zip_files: list[Path], save_dir: Path) -> Path:
@@ -270,32 +283,39 @@ class FSD50K(SourceData):
             return
 
         urls = [
-            "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.zip?download=1",
-            "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z01?download=1",
-            "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z02?download=1",
-            "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z03?download=1",
-            "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z04?download=1",
-            "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z05?download=1",
+            (
+                "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.zip?download=1",
+                "c480d119b8f7a7e32fdb58f3ea4d6c5a ",
+            ),
+            (
+                "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z01?download=1",
+                "faa7cf4cc076fc34a44a479a5ed862a3",
+            ),
+            (
+                "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z02?download=1",
+                "8f9b66153e68571164fb1315d00bc7bc",
+            ),
+            (
+                "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z03?download=1",
+                "1196ef47d267a993d30fa98af54b7159",
+            ),
+            (
+                "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z04?download=1",
+                "d088ac4e11ba53daf9f7574c11cccac9",
+            ),
+            (
+                "https://zenodo.org/records/4060432/files/FSD50K.dev_audio.z05?download=1",
+                "81356521aa159accd3c35de22da28c7f ",
+            ),
         ]
 
         os.makedirs(save_dir, exist_ok=True)
 
         if not os.path.exists("fsd50k-zip.txt"):
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                zip_files = list(executor.map(lambda url: download_file(url, save_dir), urls))
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                zip_files = list(executor.map(lambda url_hash: download_file(url_hash[0], url_hash[1], save_dir), urls))
 
-            # subprocess.run(["zip", "-s", "0", split_zip, "--out", unsplit_zip], check=True)
-
-            fragments = list(Path("../data").glob("FSD50K.dev_audio.*"))
-
-            # sort: main .zip first, then the rest
-            fragments = sorted(fragments, key=lambda p: (p.suffix != ".zip", p.suffix))
-            print(fragments)
-            unsplit_zip = Path("../data/unsplit.zip")
-            with open(unsplit_zip, "wb") as outfile:
-                for frag in fragments:
-                    with open(frag, "rb") as infile:
-                        shutil.copyfileobj(infile, outfile, length=16 * 1024 * 1024)
+            print(zip_files[0])
 
             with open("fsd50k-zip.txt", "w") as f:
                 f.write("fsd50k downloaded.")
@@ -306,12 +326,7 @@ class FSD50K(SourceData):
             os.remove(file)
 
         print("Unzipping FSD50K dataset...")
-        with zipfile.ZipFile(unsplit_zip, "r") as zip_ref:
-            zip_ref.extractall(save_dir)
-
-        # Deleting zip files
-        print("Deleting FSD50K zip file...")
-        os.remove(unsplit_zip)
+        subprocess.run(["7z", "x", zip_files[0], f"-o{save_dir}"], check=True)
 
         if os.path.isfile("fsd50k-zip.txt"):
             os.rename("fsd50k-zip.txt", "fsd50k-extracted.txt")
