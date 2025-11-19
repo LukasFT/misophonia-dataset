@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 
 
-def train_valid_test_split(p0: float, p1: float, p2: float, df: pd.DataFrame) -> pd.DataFrame:
+def train_valid_test_split(
+    p0: float, p1: float, p2: float, df: pd.DataFrame
+) -> pd.DataFrame:  # TODO: Do not do this at runtime every time!
     """
     Creates train/valid/test split for dataset based on provided proportions.
 

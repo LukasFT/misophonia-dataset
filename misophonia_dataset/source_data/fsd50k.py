@@ -11,7 +11,7 @@ import pandas as pd
 
 from ..interface import SourceData
 from ._downloading import download_file
-from ._splits import train_valid_test_split
+from ._utils import train_valid_test_split
 
 MODULE_DIR = Path(__file__).parent  # TODO: Refactor!
 
