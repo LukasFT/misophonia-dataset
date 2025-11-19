@@ -7,13 +7,18 @@ import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Iterator
 from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
 import requests
-from interface import DEFAULT_DIR, SourceData
 from tqdm import tqdm
+
+from misophonia_dataset.interface import SourceData
+
+########################### Path of Module ##############################
+module_dir = os.path.dirname(__file__)
 
 ########################### Utility Functions ###########################
 
@@ -158,6 +163,7 @@ class ESC50(Dataset):
         with open(mapping, "r") as f:
             self.mapping = json.load(f)
 
+        self.json_path = Path(os.path.join(module_dir, "esc50-extracted.json"))
         esc50_dir = self.download_data(save_dir)
         self.dir_path = esc50_dir  # for self.delete()
         self.path = os.path.join(esc50_dir, "audio")
@@ -174,9 +180,10 @@ class ESC50(Dataset):
         Returns:
             Full path to the dataset
         """
-        if os.path.exists("esc50-extracted.json"):
+
+        if os.path.exists(self.json_path):
             print(f"ESC50 dataset has already been downloaded and unzipped at {save_dir}")
-            with open("esc50-extracted.json", "r") as f:
+            with open(self.json_path, "r") as f:
                 data = json.load(f)
                 return Path(data["Path"])
 
@@ -210,7 +217,7 @@ class ESC50(Dataset):
         else:
             print("ESC50 has already been downloaded. Proceeding to extraction.")
 
-            with open("esc50-zip.txt", "w") as f:
+            with open(os.path.join(module_dir, "esc50-zip.txt"), "w") as f:
                 pass  # track downloading and extraction of dataset
 
         print("\nUnzipping ESC-50 dataset...")
@@ -221,9 +228,9 @@ class ESC50(Dataset):
         print(f"Dataset downloaded and extracted to: {extracted_path}")
 
         # In case another class is instantiated but dataset does not need to be redownloaded.
-        if os.path.isfile("esc50-zip.txt"):
-            os.rename("esc50-zip.txt", "esc50-extracted.json")
-        with open("esc50-extracted.json", "w") as f:
+        if os.path.isfile(os.path.join(module_dir, "esc50-zip.txt")):
+            os.rename(os.path.join(module_dir, "esc50-zip.txt"), self.json_path)
+        with open(self.json_path, "w") as f:
             f.dump({"Path": extracted_path, "Meta": os.path.join(extracted_path, "meta", "esc50.csv")}, f, indent=4)
 
         print("Deleting ESC-50 zip file...")
@@ -235,10 +242,10 @@ class ESC50(Dataset):
         Saves the downloaded metadata as a Dataframe
 
         """
-        if os.path.exists("esc50-extracted.json"):
-            with open("esc50-extracted.json", "r") as f:
+        if os.path.exists(self.json_path):
+            with open(self.json_path, "r") as f:
                 data = json.load(f)
-                return Path(data["Meta"])
+                return pd.read_csv(data["Meta"])
         else:
             raise FileNotFoundError("Please download ESC50 dataset first.")
 
@@ -258,7 +265,7 @@ class ESC50(Dataset):
 
     def delete(self) -> None:
         shutil.rmtree(self.dir_path)
-        shutil.rmtree("esc50-extracted.json")
+        shutil.rmtree(self.json_path)
 
     def __str__(self) -> str:
         return "ESC50 Dataset"
@@ -278,6 +285,7 @@ class FSD50K(Dataset):
         with open(backgrounds, "r") as f:
             self.backgrounds = json.load(f)["Backgrounds"]
 
+        self.json_path = Path(os.path.join(module_dir, "fsd50k-extracted.json"))
         self.path = self.download_data(save_dir)
 
         fsd50k = self.get_metadata(self.path)
@@ -292,9 +300,9 @@ class FSD50K(Dataset):
         Returns:
             full path of saved dataset
         """
-        if os.path.exists("fsd50k-extracted.json"):
+        if os.path.exists(self.json_path):
             print(f"FSD50K dataset has already been downloaded and unzipped at {save_dir}")
-            with open("fsd50k-extracted.json", "r") as f:
+            with open(self.json_path, "r") as f:
                 data = json.load(f)
                 return data["Path"]
 
@@ -327,13 +335,13 @@ class FSD50K(Dataset):
 
         os.makedirs(save_dir, exist_ok=True)
 
-        if not os.path.exists("fsd50k-zip.txt"):
+        if not os.path.exists(os.path.join(module_dir, "fsd50k-zip.txt")):
             with ThreadPoolExecutor(max_workers=6) as executor:
                 zip_files = list(executor.map(lambda url_hash: download_file(url_hash[0], url_hash[1], save_dir), urls))
 
             print(zip_files[0])
 
-            with open("fsd50k-zip.txt", "w") as f:
+            with open(os.path.join(module_dir, "fsd50k-zip.txt"), "w"):
                 pass  # to track zip + extraction progress
         else:
             print("FSD50K dataset has already been downloaded. Proceeding to extraction.")
@@ -348,9 +356,9 @@ class FSD50K(Dataset):
         extracted_path = os.path.join(save_dir, "FSD50K.dev_audio")
 
         # Save the dataset path to a JSON in case a new FSD50K class is made and dataset is present
-        if os.path.isfile("fsd50k-zip.txt"):
-            os.rename("fsd50k-zip.txt", "fsd50k-extracted.json")
-        with open("fsd50k-extracted.json", "r+") as f:
+        if os.path.isfile(os.path.join(module_dir, "fsd50k-zip.txt")):
+            os.rename(os.path.join(module_dir, "fsd50k-zip.txt"), self.json_path)
+        with open(self.json_path, "r+") as f:
             data = json.load(f)
             data["Path"] = extracted_path
             json.dump(data, f, indent=4)
@@ -363,8 +371,8 @@ class FSD50K(Dataset):
 
         """
         # Check if metadata has already been downloaded
-        if os.path.exists("fsd50k-extracted.json"):
-            with open("fsd50k-extracted.json", "r") as f:
+        if os.path.exists(self.json_path):
+            with open(self.json_path, "r") as f:
                 data = json.load(f)
                 if "Meta" in data.keys():
                     return pd.read_csv(data["Meta"])
@@ -386,7 +394,7 @@ class FSD50K(Dataset):
         metadata_path = os.path.join(extracted_path, "FSD50K.metadata", "collection", "collection_dev.csv")
 
         # Save metadata path so that if new class is instantiated metadata can easily be retrieved.
-        with open("fsd50k-extracted.json", "r+") as f:
+        with open(self.json_path, "r+") as f:
             data = json.load(f)
             data["Meta"] = metadata_path
             json.dump(data, f, indent=4)
@@ -428,7 +436,7 @@ class FSD50K(Dataset):
 
     def delete(self) -> None:
         shutil.rmtree(self.path)
-        shutil.rmtree("fsd50k-extracted.json")
+        shutil.rmtree(self.json_path)
 
     def __str__(self) -> str:
         return "FSDK50 Dataset"
@@ -448,6 +456,7 @@ class FSD50KEval(Dataset):
         with open(backgrounds, "r") as f:
             self.backgrounds = json.load(f)["Backgrounds"]
 
+        self.json_path = Path(os.path.join(module_dir, "fsd50k-extracted.json"))
         self.path = self.download_data(save_dir)
 
         fsd50k_eval = self.get_metadata(self.path)
@@ -463,10 +472,10 @@ class FSD50KEval(Dataset):
             full path of saved dataset
         """
         # FSD50K eval requires FSD50K dev to be downloaded first, particularly for metadata.
-        if not os.path.exists("fsd50k-extracted.json"):
+        if not os.path.exists(self.json_path):
             raise FileNotFoundError("Please download FSD50K dev dataset before downloading the eval dataset.")
 
-        with open("fsd50k-extracted.json", "r") as f:
+        with open(self.json_path, "r") as f:
             data = json.load(f)
             if "evalPath" in data.keys():
                 print(f"FSD50K eval dataset has already been downloaded and unzipped at {save_dir}")
@@ -509,7 +518,7 @@ class FSD50KEval(Dataset):
         if os.path.isfile("fsd50k-eval-zip.txt"):
             os.remove("fsd50k-eval-zip.txt")
 
-        with open("fsd50k-extracted.json", "r+") as f:
+        with open(self.json_path, "r+") as f:
             data = json.load(f)
             data["evalPath"] = extracted_path
             json.dump(data, f, indent=4)
@@ -522,8 +531,8 @@ class FSD50KEval(Dataset):
 
         """
         # Check if metadata has already been downloaded
-        if os.path.exists("fsd50k-extracted.json"):
-            with open("fsd50k-extracted.json", "r") as f:
+        if os.path.exists(self.json_path):
+            with open(self.json_path, "r") as f:
                 data = json.load(f)
                 if "evalMeta" in data.keys():
                     return pd.read_csv(data["evalMeta"])
@@ -533,7 +542,7 @@ class FSD50KEval(Dataset):
         metadata_path = os.path.join(extracted_path, "FSD50K.metadata", "collection", "collection_eval.csv")
 
         # Save metadata path so that if new class is instantiated metadata can easily be retrieved.
-        with open("fsd50k-extracted.json", "r+") as f:
+        with open(self.json_path, "r+") as f:
             data = json.load(f)
             data["evalMeta"] = metadata_path
             json.dump(data, f, indent=4)
@@ -586,8 +595,11 @@ class FOAMS(Dataset):
     """
 
     def __init__(self, save_dir: Path) -> None:
+        self.json_path = Path(os.path.join(module_dir, "foams-extracted.json"))
         self.path = self.download_data(save_dir)
-        self.metadata = self.get_metadata(self.path)
+
+        foams_df = self.get_metadata(self.path)
+        self.metadata = self.train_valid_test_split(0.8, 0.2, 0, foams_df)
 
     def download_data(self, save_dir: Path) -> Path:
         """
@@ -596,23 +608,38 @@ class FOAMS(Dataset):
             save_dir
         """
         url = "https://zenodo.org/records/7109069/files/FOAMS_processed_audio.zip?download=1"
-        if not os.path.exists("foams-extracted.txt"):
+        if not os.path.exists(self.json_path):
             unzipped_data = download_file(url, save_dir)
 
             with zipfile.ZipFile(unzipped_data, "r") as zip_ref:
                 zip_ref.extractall(save_dir)
 
-            with open("foams_extracted.txt", "w") as f:
-                f.write("Downloaded and extracted FOAMS dataset.")
+            extracted_path = os.path.join(save_dir, "FOAMS_processed_audio")
+            with open(self.json_path, "w") as f:
+                json.dump({"Path": extracted_path}, f, indent=4)
 
             print("Removing FOAMS zip...")
             os.remove(unzipped_data)
         else:
             print("FOAMS dataset has already been downloaded and unzipped.")
 
-        return Path(os.path.join(save_dir, "FOAMS_processed_audio"))
+        with open(self.json_path, "r") as f:
+            data = json.load(f)
+            return data["Path"]
 
     def get_metadata(self, extracted_path: Path) -> pd.DataFrame:
+        if not os.path.exists(self.json_path):
+            raise FileNotFoundError("Please download FOAMS dataset before getting metadata.")
+
+        with open(self.json_path, "r") as f:
+            data = json.load(f)
+            if "Meta" in data.keys():
+                print("Metadata has already been downloaded.")
+                metadata = pd.read_csv(data["Meta"])
+                metadata = metadata.rename(columns={"id": "filename", "label": "labels"})
+                metadata.loc[:, "isTrig"] = 1
+                return metadata
+        # otherise download from the web
         url = "https://zenodo.org/record/7109069/files/segmentation_info.csv?download=1"
         response = requests.get(url)
         response.raise_for_status()
@@ -621,8 +648,14 @@ class FOAMS(Dataset):
         with open(metadata_path, "wb") as f:
             f.write(response.content)
 
+        with open(self.json_path, "r+") as f:
+            data = json.load(f)
+            data["Meta"] = metadata_path
+            json.dump(data, f, indent=4)
+
         metadata = pd.read_csv(metadata_path)
         metadata = metadata.rename(columns={"id": "filename", "label": "labels"})
+        metadata.loc[:, "isTrig"] = 1
         return metadata
 
     def get_samples(self) -> pd.DataFrame:
@@ -638,16 +671,39 @@ class FOAMS(Dataset):
 class MisophoniaData:
     """
     IMPORTANT: The metadata of all SourceData objects passed to MisophoniaData should have a "filename" column and "label"
-    column and "isTrig" column
+    column, "isTrig" column, and "split" column
     """
 
-    def __init__(self, source_data: list[SourceData], test_data: list[SourceData]) -> None:
+    def __init__(self, source_data: list[SourceData]) -> None:
         self._source_data = source_data
-        self._test_data = test_data
-        pass
+        # each source data has a metadata dataframe
+        # need to split each df based on "split" and merge into train_df, val_df, test_df
+        # each source data also has a path attribute. need to be able to retreive this
+        # when we wish to mix clips
+        self.train, self.val, self.test = self.split_and_merge()
 
-    def generate(self) -> None:
-        pass
+    def split_and_merge(self) -> list[pd.DataFrame]:
+        train_dfs = []
+        val_dfs = []
+        test_dfs = []
+
+        for src in self._source_data:
+            meta = src.metadata[["filename", "labels", "isTrig", "split"]].copy()
+
+            # Add source name or type identifier
+            meta["source"] = type(src).__name__
+
+            # Split using the "split" column
+            train_dfs.append(meta[meta["split"] == 0])
+            val_dfs.append(meta[meta["split"] == 1])
+            test_dfs.append(meta[meta["split"] == 2])
+
+        # Concatenate each list; ignore_index for clean reindexing
+        train_df = pd.concat(train_dfs, ignore_index=True) if train_dfs else pd.DataFrame()
+        val_df = pd.concat(val_dfs, ignore_index=True) if val_dfs else pd.DataFrame()
+        test_df = pd.concat(test_dfs, ignore_index=True) if test_dfs else pd.DataFrame()
+
+        return train_df, val_df, test_df
 
     class MisophoniaItem:
         #     component_sounds =
@@ -656,15 +712,6 @@ class MisophoniaData:
         def __init__(self) -> None:
             pass
 
-
-if __name__ == "__main__":
-    esc50_mapping = Path("../mappings/data/esc50_to_foams_mapping.json")
-
-    fsd50k_mapping = Path("../data/mappings/fsd50k_to_foams_mapping.json")
-    background_classes = Path("../data/mappings/background_classes.json")
-
-    # esc50 = ESC50(mapping=esc50_mapping, save_dir=DEFAULT_DIR)
-    fsd50k = FSD50K(mapping=fsd50k_mapping, backgrounds=background_classes, save_dir=DEFAULT_DIR)
-    # fsd50_eval = FSD50K_eval(mapping=fsd50k_mapping, backgrounds=background_classes, save_dir=DEFAULT_DIR)
-
-    # foams = FOAMS(save_dir=DEFAULT_DIR)
+    def generate(self, batch_size: int, meta: pd.DataFrame, display: bool) -> Iterator[MisophoniaItem]:
+        for i in range(batch_size):
+            continue
