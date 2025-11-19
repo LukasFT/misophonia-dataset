@@ -1,14 +1,17 @@
 # TODO: refactor
 import os
-import sys
-import requests
 from zipfile import ZipFile
+
+import requests
 
 # URLs for D1 and D2 full subject ZIPs
 URLS = {
     "D1": "https://www.york.ac.uk/sadie-project/Resources/SADIEIIDatabase/D1.zip",
     "D2": "https://www.york.ac.uk/sadie-project/Resources/SADIEIIDatabase/D2.zip",
 }
+
+
+# TODO: Refactor this, right now we also have the _downloading module ...
 
 
 def download_file(url, dest_path):
