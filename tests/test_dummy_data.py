@@ -1,6 +1,6 @@
 import pandas as pd
 
-from misophonia_dataset.dummy_data import create_dummy_data
+from experiment.py_analysis.dummy_data import create_dummy_data
 
 
 def test_create_dummy_data():
