@@ -39,6 +39,17 @@ class SourceData(ABC):
         pass
 
     @abstractmethod
+    def train_valid_test_split(self, p0: float, p1: float, p2: float) -> pd.DataFrame:
+        """
+        Given a dataframe of metadata, adds a "split" column with 0 (train), 1 (validation) or 2 (test) splits.
+        Train/valid/test split proportions are p0/p1/p2
+
+        Returns:
+            Metadata dataframe with "split" column added
+        """
+        pass
+
+    @abstractmethod
     def delete(self) -> None:
         """
         Deletes the entire dataset. Useful after mixing sounds.

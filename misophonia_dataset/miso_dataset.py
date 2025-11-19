@@ -15,6 +15,8 @@ import requests
 from interface import DEFAULT_DIR, SourceData
 from tqdm import tqdm
 
+########################### Utility Functions ###########################
+
 
 def download_file(url: str, md5: str, save_dir: Path) -> Path:
     """
@@ -109,42 +111,44 @@ def check_md5(file: Path, md5: str) -> bool:
     return md5_hash == md5
 
 
-def merge_zip_files(zip_files: list[Path], save_dir: Path) -> Path:
-    """
-    Helper function to merge zip component files into one large zip. Primarily used for FSD50K and FSD50K_eval datasets.
-    """
-    unsplit_zip = os.path.join(save_dir, "unsplit.zip")
-
-    with zipfile.ZipFile(unsplit_zip, "w", compression=zipfile.ZIP_DEFLATED) as merged_zip:
-        for zip_path in zip_files:
-            if not os.path.isfile(zip_path):
-                raise FileNotFoundError(f"Cannot merge zip files. Missing {zip_path}.")
-
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                for file_name in zf.namelist():
-                    # Stream copy from source ZIP into merged ZIP
-                    with zf.open(file_name) as src, merged_zip.open(file_name, "w") as dst:
-                        shutil.copyfileobj(src, dst)
-
-    return Path(unsplit_zip)
+############################ Dataset Classes ###########################
 
 
-def delete_unused_samples(valid_files: list[str], path_to_dir: Path) -> None:
-    """
-    Helper function to delete unused sound files after filtering for trigger/control/background classes.
+class Dataset(SourceData):
+    """Dataset class just for train_valid_test_split method inheritance"""
 
-    Params:
-        valid_files (List[str]): list of file names to keep
-        path_to_dir (Path): Path to the directory containing the dataset
-    """
+    def __init__(self) -> None:
+        pass
 
-    for fname in os.listdir(path_to_dir):
-        file_path = os.path.join(path_to_dir, fname)
-        if os.path.isfile(file_path) and fname not in valid_files:
-            os.remove(file_path)
+    def download_data(self) -> Path:
+        pass
+
+    def get_metadata(self) -> pd.DataFrame:
+        pass
+
+    def get_samples(self) -> pd.DataFrame:
+        pass
+
+    def train_valid_test_split(self, p0: float, p1: float, p2: float, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Creates train/valid/test split for dataset based on provided proportions.
+
+        Returns:
+            Metadata dataframe with "split" column added
+        """
+        assert abs(p0 + p1 + p2 - 1.0) < 1e-6, "Proportions must sum to 1."
+        print("Creating train/valid/test split...")
+        meta = df.copy()
+        meta = meta.sample(frac=1, random_state=42).reset_index(drop=True)  # Shuffle the dataframe
+        meta["split"] = np.random.choice([0, 1, 2], size=meta.shape[0], p=[p0, p1, p2])
+
+        return meta
+
+    def delete(self) -> None:
+        pass
 
 
-class ESC50(SourceData):
+class ESC50(Dataset):
     """
     Class for the ESC50 dataset. Data is downloaded from "https://github.com/karoldvl/ESC-50/archive/master.zip".
     ESC50 is only used for trigger sounds, so the isTrig of the metadata column will have only 1s.
@@ -155,12 +159,12 @@ class ESC50(SourceData):
             self.mapping = json.load(f)
 
         esc50_dir = self.download_data(save_dir)
+        self.dir_path = esc50_dir  # for self.delete()
         self.path = os.path.join(esc50_dir, "audio")
 
         esc50 = self.get_metadata(esc50_dir)
-        self.metadata = self.get_samples(esc50)
-
-        self.dir_path = esc50_dir
+        esc50 = self.get_samples(esc50)
+        self.metadata = self.train_valid_test_split(0.8, 0.2, 0, esc50)
 
     def download_data(self, save_dir: Path) -> Path:
         """
@@ -259,7 +263,8 @@ class ESC50(SourceData):
     def __str__(self) -> str:
         return "ESC50 Dataset"
 
-class FSD50K(SourceData):
+
+class FSD50K(Dataset):
     """
     Class for the FSD50K dev set. Data is downloaded from Zenodo, https://zenodo.org/records/4060432.
     When downloading and unzipping the dataset, txt files are generated to track progress.
@@ -276,7 +281,8 @@ class FSD50K(SourceData):
         self.path = self.download_data(save_dir)
 
         fsd50k = self.get_metadata(self.path)
-        self.metadata = self.get_samples(fsd50k)
+        fsd50k = self.get_samples(fsd50k)
+        self.metadata = self.train_valid_test_split(0.8, 0.2, 0, fsd50k)
 
     def download_data(self, save_dir: Path) -> Path:
         """
@@ -418,24 +424,23 @@ class FSD50K(SourceData):
         # Fix rename syntax
         fsd50k = fsd50k.rename(columns={"fname": "filename"})
 
-        # TODO: Find amplitude and duration of sound samples
-
         return fsd50k
 
     def delete(self) -> None:
         shutil.rmtree(self.path)
         shutil.rmtree("fsd50k-extracted.json")
-    
+
     def __str__(self) -> str:
         return "FSDK50 Dataset"
 
 
-class FSD50K_eval(SourceData):
+class FSD50KEval(Dataset):
     """
-        Class for the FSD50K eval set. Data is downloaded from Zenodo, https://zenodo.org/records/4060432.
-        When downloading and unzipping the dataset, txt files are generated to track progress.
-        Controls, triggers, and backgrounds are sampled from FSD50K.
+    Class for the FSD50K eval set. Data is downloaded from Zenodo, https://zenodo.org/records/4060432.
+    When downloading and unzipping the dataset, txt files are generated to track progress.
+    Controls, triggers, and backgrounds are sampled from FSD50K.
     """
+
     def __init__(self, mapping: Path, backgrounds: Path, save_dir: Path) -> None:
         with open(mapping, "r") as f:
             self.mapping = json.load(f)
@@ -446,7 +451,8 @@ class FSD50K_eval(SourceData):
         self.path = self.download_data(save_dir)
 
         fsd50k_eval = self.get_metadata(self.path)
-        self.metadata = self.get_samples(fsd50k_eval)
+        fsd50k_eval = self.get_samples(fsd50k_eval)
+        self.metadata = self.train_valid_test_split(0, 0, 1.0, fsd50k_eval)
 
     def download_data(self, save_dir: Path) -> Path:
         """
@@ -461,10 +467,10 @@ class FSD50K_eval(SourceData):
             raise FileNotFoundError("Please download FSD50K dev dataset before downloading the eval dataset.")
 
         with open("fsd50k-extracted.json", "r") as f:
-                data = json.load(f)
-                if "evalPath" in data.keys():
-                    print(f"FSD50K eval dataset has already been downloaded and unzipped at {save_dir}")
-                    return data["evalPath"]
+            data = json.load(f)
+            if "evalPath" in data.keys():
+                print(f"FSD50K eval dataset has already been downloaded and unzipped at {save_dir}")
+                return data["evalPath"]
 
         urls = [
             (
@@ -558,9 +564,9 @@ class FSD50K_eval(SourceData):
         fsd50k_eval = fsd50k_eval[fsd50k_eval["isTrig"] >= int(0)].copy()
 
         # Update label mapping only for Trigger rows
-        fsd50k_eval.loc[fsd50k_eval["isTrig"] == 1, "labels"] = fsd50k_eval.loc[fsd50k_eval["isTrig"] == 1, "labels"].apply(
-            lambda x: self.mapping["Trigger"][str(x)]["foams_mapping"]
-        )
+        fsd50k_eval.loc[fsd50k_eval["isTrig"] == 1, "labels"] = fsd50k_eval.loc[
+            fsd50k_eval["isTrig"] == 1, "labels"
+        ].apply(lambda x: self.mapping["Trigger"][str(x)]["foams_mapping"])
 
         # Fix rename syntax
         fsd50k_eval = fsd50k_eval.rename(columns={"fname": "filename"})
@@ -573,7 +579,8 @@ class FSD50K_eval(SourceData):
     def __str__(self) -> str:
         return "FSDK50 Eval Dataset"
 
-class FOAMS(SourceData):
+
+class FOAMS(Dataset):
     """
     Class for FOAMS misophonia trigger sounds. Downloaded from https://zenodo.org/records/7109069
     """
@@ -639,7 +646,7 @@ class MisophoniaData:
         self._test_data = test_data
         pass
 
-    def generate(self) -> Generator[MisophoniaItem]:
+    def generate(self) -> None:
         pass
 
     class MisophoniaItem:
@@ -658,6 +665,6 @@ if __name__ == "__main__":
 
     # esc50 = ESC50(mapping=esc50_mapping, save_dir=DEFAULT_DIR)
     fsd50k = FSD50K(mapping=fsd50k_mapping, backgrounds=background_classes, save_dir=DEFAULT_DIR)
-    fsd50_eval = FSD50K_eval(mapping=fsd50k_mapping, backgrounds=background_classes, save_dir=DEFAULT_DIR)
+    # fsd50_eval = FSD50K_eval(mapping=fsd50k_mapping, backgrounds=background_classes, save_dir=DEFAULT_DIR)
 
     # foams = FOAMS(save_dir=DEFAULT_DIR)
