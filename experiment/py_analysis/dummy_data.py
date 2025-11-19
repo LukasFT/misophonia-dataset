@@ -275,7 +275,7 @@ def create_dummy_data(
             # r["rating"] = int(np.clip(np.rint(mu + rng.normal(*reff_noise)), 0, 5))
             r["rating"] = float(mu + rng.normal(*reff_noise))  # Debug
 
-    df = pd.DataFrame(records)
+    df = pd.DataFrame(records)  # noqa: PD901
 
     # Ensure types are sensible
     int_cols = [

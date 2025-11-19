@@ -1,4 +1,5 @@
 # TODO: refactor
+# ruff: noqa: ANN001, ANN201 # TODO: Add type annotations
 import os
 from zipfile import ZipFile
 

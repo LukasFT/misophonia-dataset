@@ -50,7 +50,7 @@ class MisophoniaDataset:  # TODO: Refactor so we have a Dataset interface that t
             raise NotImplementedError()
             pass
 
-    def generate(self, batch_size: int, meta: pd.DataFrame, display: bool) -> Iterator[MisophoniaItem]:
+    def generate(self, batch_size: int, meta: pd.DataFrame, *, display: bool) -> Iterator[MisophoniaItem]:
         raise NotImplementedError()
         for i in range(batch_size):
             continue
