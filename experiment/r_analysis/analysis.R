@@ -163,4 +163,3 @@ fmt_row <- function(name, res) {
 cat("\n--- Point estimates (Wald, treating psi as fixed) ---\n")
 cat(fmt_row("Delta_personal", res_personal), "\n")
 cat(fmt_row("Delta_global",   res_global),   "\n")
-

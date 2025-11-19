@@ -1323,4 +1323,3 @@ window.jatos.onLoad(async () => {
 
   jsPsych.run(mainTimeline);
 });
-
