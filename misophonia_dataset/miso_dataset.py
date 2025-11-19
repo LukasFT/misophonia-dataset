@@ -354,16 +354,17 @@ class FSD50K(SourceData):
         """
         # Check if metadata has already been downloaded
         if os.path.exists("fsd50k-extracted.json"):
-            with open("fsd50k-extracted.json", "w") as f:
+            with open("fsd50k-extracted.json", "r") as f:
                 data = json.load(f)
-                if data["Meta"]:
+                if "Meta" in data.keys():
                     return pd.read_csv(data["Meta"])
         else:
             raise FileNotFoundError("Please download dataset before downloading the metadata.")
 
         # Download metadata folder
         url = "https://zenodo.org/records/4060432/files/FSD50K.metadata.zip?download=1"
-        unzipped_meta = download_file(url, extracted_path)
+        md5 = "b9ea0c829a411c1d42adb9da539ed237"
+        unzipped_meta = download_file(url, md5, extracted_path)
 
         # Extract all to FSD50K.dev_audio folder
         with zipfile.ZipFile(unzipped_meta, "r") as zip_ref:
@@ -403,7 +404,7 @@ class FSD50K(SourceData):
 
         # Only keep rows of collected samples
         fsd50k["isTrig"] = np.select(conditions, choices, default=-1)
-        fsd50k = fsd50k[fsd50k["category"] >= 0].copy()
+        fsd50k = fsd50k[fsd50k["isTrig"] >= int(0)].copy()
 
         # Update label mapping only for Trigger rows
         fsd50k.loc[fsd50k["isTrig"] == 1, "labels"] = fsd50k.loc[fsd50k["isTrig"] == 1, "labels"].apply(

@@ -1,0 +1,4 @@
+{
+    "Path": "../data/FSD50K.dev_audio",
+    "Meta": "../data/FSD50K.dev_audio/FSD50K.metadata/collection/collection_dev.csv"
+}
