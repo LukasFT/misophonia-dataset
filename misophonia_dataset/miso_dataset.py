@@ -1,120 +1,23 @@
-import hashlib
 import json
 import os
 import shutil
 import subprocess
-import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Iterator
-from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
 import requests
+from IPython.display import Audio, display
 from tqdm import tqdm
 
 from misophonia_dataset.interface import SourceData
+from misophonia_dataset.utils import binaural_mix, download_file
 
 ########################### Path of Module ##############################
 module_dir = os.path.dirname(__file__)
-
-########################### Utility Functions ###########################
-
-
-def download_file(url: str, md5: str, save_dir: Path) -> Path:
-    """
-    Helper function to download large files from the web. Displays progress bar and provides resume support.
-    Used primarily for FSD50K and FSD50K_eval datasets.
-
-    Params:
-        url (str): url from which to download the file
-        save_dir (Path): path to save the file
-    Returns:
-        the full path of the saved file
-    """
-
-    """
-    Download a large file with automatic retries and resume support.
-
-    Args:
-        url (str): URL of the file.
-        save_dir (Path): Directory to save into.
-        max_retries (int): Number of retry attempts.
-        backoff_factor (float): Exponential backoff multiplier.
-
-    Returns:
-        Path: Path to downloaded file.
-    """
-    max_retries = 5
-
-    # Remove query params
-    filename = os.path.basename(urlparse(url).path)
-    save_path = Path(save_dir) / filename
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            # Check for partial file
-            headers = {}
-            if save_path.exists():
-                existing = save_path.stat().st_size
-                headers["Range"] = f"bytes={existing}-"
-            else:
-                existing = 0
-
-            # Request (with streaming)
-            response = requests.get(url, headers=headers, stream=True, timeout=30)
-            response.raise_for_status()
-
-            total_size = int(response.headers.get("content-length", 0)) + existing
-            mode = "ab" if existing else "wb"
-            chunk_size = 1024 * 1024  # 1MB
-
-            with (
-                open(save_path, mode) as f,
-                tqdm(
-                    total=total_size,
-                    initial=existing,
-                    unit="B",
-                    unit_scale=True,
-                    desc=f"Downloading {filename}",
-                    ascii=True,
-                ) as bar,
-            ):
-                for chunk in response.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        bar.update(len(chunk))
-
-            return Path(save_path)
-
-        except Exception as e:
-            print(f"\nError downloading {filename} (attempt {attempt}/{max_retries}): {e}")
-
-            if attempt == max_retries:
-                print("Max retries reached — giving up.")
-                raise
-
-            # Exponential backoff
-            sleep_time = 1.5**attempt
-            print(f"Retrying in {sleep_time:.1f} seconds...")
-            time.sleep(sleep_time)
-
-    # Check integrity of files
-    assert check_md5(Path(save_path), md5)
-
-    # Should never reach here
-    return Path(save_path)
-
-
-def check_md5(file: Path, md5: str) -> bool:
-    with open(file, "rb") as f:
-        data = f.read()
-        md5_hash = hashlib.md5(data).hexdigest()
-
-    return md5_hash == md5
-
 
 ############################ Dataset Classes ###########################
 
@@ -638,6 +541,7 @@ class FOAMS(Dataset):
                 metadata = pd.read_csv(data["Meta"])
                 metadata = metadata.rename(columns={"id": "filename", "label": "labels"})
                 metadata.loc[:, "isTrig"] = 1
+                metadata["filename"] = metadata["filename"].astype(str) + "_processed"
                 return metadata
         # otherise download from the web
         url = "https://zenodo.org/record/7109069/files/segmentation_info.csv?download=1"
@@ -656,6 +560,7 @@ class FOAMS(Dataset):
         metadata = pd.read_csv(metadata_path)
         metadata = metadata.rename(columns={"id": "filename", "label": "labels"})
         metadata.loc[:, "isTrig"] = 1
+        metadata["filename"] = metadata["filename"].astype(str) + "_processed"
         return metadata
 
     def get_samples(self) -> pd.DataFrame:
@@ -668,10 +573,24 @@ class FOAMS(Dataset):
         return "FOAMS Dataset"
 
 
+class MisophoniaItem:
+    #     component_sounds =
+    #     duration
+    #     amplitude
+    def __init__(self, audio: np.ndarray, sr: int) -> None:
+        self.audio = audio
+        self.sr = sr
+        # TODO: Add metadata that tracks labels of each component, and origin files
+
+
 class MisophoniaData:
     """
     IMPORTANT: The metadata of all SourceData objects passed to MisophoniaData should have a "filename" column and "label"
     column, "isTrig" column, and "split" column
+
+    MisophoniaData is a class to mix foreground (trigger or control) sounds with background sounds.
+    Given a list of SourceData objects, which include both MetaData and the Paths to datasets, MisophoniaData can generate
+    binaural mixes of fg and bg sounds with randomized azimuth, elevation, reverb, and speaker_layout settings
     """
 
     def __init__(self, source_data: list[SourceData]) -> None:
@@ -681,6 +600,7 @@ class MisophoniaData:
         # each source data also has a path attribute. need to be able to retreive this
         # when we wish to mix clips
         self.train, self.val, self.test = self.split_and_merge()
+        self.paths = {type(s).__name__: s.path for s in source_data}
 
     def split_and_merge(self) -> list[pd.DataFrame]:
         train_dfs = []
@@ -705,13 +625,24 @@ class MisophoniaData:
 
         return train_df, val_df, test_df
 
-    class MisophoniaItem:
-        #     component_sounds =
-        #     duration
-        #     amplitude
-        def __init__(self) -> None:
-            pass
+    def generate(self, batch_size: int, meta: pd.DataFrame, show: bool) -> Iterator[MisophoniaItem]:
+        trigs_df = meta[meta["isTrig"] == 1]
+        background_df = meta[meta["isTrig"] == 2]
 
-    def generate(self, batch_size: int, meta: pd.DataFrame, display: bool) -> Iterator[MisophoniaItem]:
+        replace = True
+        if batch_size > trigs_df.shape[0] or batch_size > background_df.shape[0]:
+            replace = False
+
+        trig_samples = trigs_df.sample(n=batch_size, replace=replace, ignore_index=True, random_state=42)
+        background_samples = background_df.sample(n=batch_size, replace=replace, ignore_index=True, random_state=42)
+
         for i in range(batch_size):
-            continue
+            trig_path = os.path.join(
+                self.paths[trig_samples.iloc[i]["source"]], str(trig_samples.iloc[i]["filename"]) + ".wav"
+            )
+            bg_path = os.path.join(
+                self.paths[background_samples.iloc[i]["source"]], str(background_samples.iloc[i]["filename"]) + ".wav"
+            )
+
+            mix, sr = binaural_mix(trig_path, bg_path)
+            yield MisophoniaItem(audio=mix, sr=sr)

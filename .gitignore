@@ -228,3 +228,4 @@ notebooks/playground/
 playground.py
 data/*
 !data/.gitkeep
+notebooks/playground.ipynb
