@@ -1,9 +1,17 @@
-import numpy as np
+from typing import TYPE_CHECKING
+
 import pandas as pd
+
+if TYPE_CHECKING:
+    from misophonia_dataset.source_data.foams import FOAMS
+    from misophonia_dataset.source_data.fsd50k import FSD50K
 
 
 def train_valid_test_split(
-    p0: float, p1: float, p2: float, df: pd.DataFrame
+    dataset_metadata: pd.DataFrame,
+    *,
+    fsd_50k: FSD50K | None = None,
+    foams: FOAMS | None = None,
 ) -> pd.DataFrame:  # TODO: Do not do this at runtime every time!
     """
     Creates train/valid/test split for dataset based on provided proportions.
@@ -11,12 +19,16 @@ def train_valid_test_split(
     Returns:
         Metadata dataframe with "split" column added
     """
-    assert abs(p0 + p1 + p2 - 1.0) < 1e-6, "Proportions must sum to 1."
-    print("Creating train/valid/test split...")
-    meta = df.copy()
-    meta = meta.sample(frac=1, random_state=42).reset_index(drop=True)  # Shuffle the dataframe
-    meta["split"] = np.random.choice(  # noqa: NPY002 FIXME: Use propper RNG syntax
-        [0, 1, 2], size=meta.shape[0], p=[p0, p1, p2]
-    )
+    raise NotImplementedError("We should use: (a) FSD50K id, and (b) a hasing function as fallback")
 
-    return meta
+    approx_split_size = {
+        "test": 0.2,
+        "val": 0.1,
+        "train": 0.7,
+    }
+
+    # (A) Use FSD50K split if available -- but split into train/val using hashing
+
+    # (B) Foams = in test
+
+    # (C) Hashing function on (FreeSound.org ID)

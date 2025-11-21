@@ -8,6 +8,11 @@ Usage:
 import typer
 from typing_extensions import Annotated
 
+from ._log import setup_print_logging
+
+setup_print_logging()
+
+
 app = typer.Typer()
 
 
