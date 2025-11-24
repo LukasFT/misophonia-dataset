@@ -26,7 +26,7 @@ def setup_print_logging() -> None:
             "ERROR": "\033[91m",  # Red
         }.get(level, "")  # Default to no color
         reset_color = "\033[0m"
-        print(f"{level_color}[{time_str}] [{level}] {message['message_type']}{reset_color}")
+        print(f"{level_color}[{time_str}] [{level}]{reset_color} {message['message_type']}")
 
     eliot.add_destinations(_printer)
 
