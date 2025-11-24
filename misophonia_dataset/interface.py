@@ -2,7 +2,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Literal, TypeAlias
 
-import pandera
+import pandas as pd
+import pandera.pandas as pa
+import pandera.typing as pat
 
 DEFAULT_DIR = NotImplementedError  # TODO: Refactor!
 
@@ -10,48 +12,39 @@ MappingT: TypeAlias = dict[str, dict[Literal["foams_mapping"], str]]
 """The structure of a mapping from dataset-specific classes to FOAMS classes."""
 
 
-def get_default_data_dir() -> Path:
-    return Path(__file__).parent.parent / "data"
+def get_default_data_dir(*, dataset_name: str | None = None, base_dir: Path | None = None) -> Path:
+    base_dir = base_dir or Path(__file__).parent.parent / "data"
+    if dataset_name is None:
+        return base_dir
+    return base_dir / dataset_name
 
 
-class SourceMetaData(pandera.DataFrameModel):
+class SourceMetaData(pa.DataFrameModel):
+    filename: pat.Series[Path]
     pass
     # raise NotImplementedError()  # TODO: Define common metadata schema
 
 
 class SourceData(ABC):
     @abstractmethod
-    def download_data(self) -> Path:
+    def is_downloaded(self) -> bool:
         """
-        Downloads dataset, extracts it,
-        and saves it into the specified directory.
+        Checks if the dataset has already been downloaded.
 
         Returns:
-            path to the saved data
+            True if the dataset is downloaded, False otherwise.
         """
         pass
 
     @abstractmethod
-    def get_metadata(self) -> SourceMetaData:
+    def download_data(self) -> None:
         """
-        Reads metadata provided with dataset
-
-        Returns:
-            DataFrame of metadata
+        Downloads dataset, extracts it, and saves it into the specified directory.
         """
         pass
 
     @abstractmethod
-    def get_samples(
-        self,
-    ) -> SourceMetaData:  # TODO: Why should this implementation be different depending on the dataset?
-        """
-        Given the dataset taxanomy, a mapping from said taxanomy to trigger/control classes, returns a df including only
-        the samples that correspond to trigger/control classes.
-
-        Returns:
-            Dataframe of metadata for only samples of interest
-        """
+    def get_samples(self) -> SourceMetaData:
         pass
 
     @abstractmethod
@@ -60,3 +53,6 @@ class SourceData(ABC):
         Deletes the entire dataset. Useful after mixing sounds.
         """
         pass
+
+    def __str__(self) -> str:
+        return f"<SourceData: {self.__class__.__name__}>"
