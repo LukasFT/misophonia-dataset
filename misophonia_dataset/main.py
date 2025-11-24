@@ -8,6 +8,7 @@ Usage:
 from pathlib import Path
 
 import eliot
+import pandas as pd
 import typer
 from typing_extensions import Annotated
 
@@ -25,7 +26,7 @@ app = typer.Typer(help="Misophonia Dataset CLI")
 @app.command()
 def download(
     datasets: Annotated[list[str], typer.Argument(help="Name(s) of datasets to download.")] = None,
-    base_save_dir: Annotated[Path, typer.Option("--save-dir", "-s", help="Directory to save datasets")] = None,
+    base_save_dir: Annotated[Path, typer.Option("--datasets-dir", "-s", help="Directory to save datasets")] = None,
 ) -> None:
     """Downloads specified datasets."""
     if datasets is None or len(datasets) == 0:
@@ -46,9 +47,26 @@ def download(
 
 
 @app.command()
-def placeholder() -> None:
-    """Placeholder command to ensure CLI has multiple commands."""
-    pass
+def search_metadata(
+    q: Annotated[str, typer.Argument(help="Search query string in pandas query format.")],
+    datasets: Annotated[list[str], typer.Argument(help="Name(s) of datasets to download.")] = None,
+    base_save_dir: Annotated[Path, typer.Option("--datasets-dir", "-s", help="Directory to save datasets")] = None,
+) -> None:
+    """Search metadata in specified datasets."""
+    eliot.log_message(f"Searching for '{q}' in datasets: {datasets}", level="info")
+
+    metadata = []
+    for dataset_name in datasets:
+        dataset = _get_dataset_from_name(dataset_name, base_dir=base_save_dir)
+        assert dataset.is_downloaded(), f"Dataset {dataset_name} is not downloaded yet."
+        meta = dataset.get_metadata()
+        metadata.append(meta)
+
+    metadata = pd.concat(metadata, ignore_index=True)
+
+    res = metadata.query(q)
+    print(f"Found {len(res)} matching entries:")
+    print(res)
 
 
 def _get_dataset_from_name(name: str, base_dir: Path) -> SourceData:
