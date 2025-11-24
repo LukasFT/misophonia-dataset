@@ -13,8 +13,17 @@ Pre-requisites:
 - VS Code
 - DevContainer Extension
 
+## Running
+
+Generally, use the CLI to run scripts. See more details by running:
+
+```bash
+python -m misophonia_dataset.main --help
+```
+
 ## Creating the Dataset
 
+!!! TODO: Update the descriptios below
 ### Trigger Sounds
 1. Create a directory called data and a subdirectory metadata
 2. Download FSDK50_dev, FSD50K_eval ESC50 and FOAMS datasets into data (requires ~30gb disk space)
