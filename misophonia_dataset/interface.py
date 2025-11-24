@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Literal, TypeAlias
 
-import pandas as pd
 import pandera.pandas as pa
 import pandera.typing as pat
 
@@ -20,9 +19,27 @@ def get_default_data_dir(*, dataset_name: str | None = None, base_dir: Path | No
 
 
 class SourceMetaData(pa.DataFrameModel):
-    filename: pat.Series[Path]
-    pass
-    # raise NotImplementedError()  # TODO: Define common metadata schema
+    """The schema for standardized metadata for source datasets."""
+
+    # TODO: Maybe we should do this outside the source datasets, as it all needs to be aligned.
+    # split: pat.Series[str] = pa.Field(isin={"train", "val", "test"})
+    # """Dataset split: train, val, or test."""
+
+    source_dataset: pat.Series[str] = pa.Field()
+    """Name of the source dataset that returned this metadata."""
+
+    file_path: pat.Series[str] = pa.Field()
+    """Path to the audio file."""
+    freesound_id: pat.Series[int] = pa.Field(nullable=True)
+    """FreeSound.org ID of the audio file, if available."""
+
+    trigger_category: pat.Series[str] = pa.Field(nullable=True)
+    """Trigger category according to FOAMS taxonomy."""
+
+    licensing: pat.Series[object] = pa.Field(nullable=True)
+    """Licensing information. Can be an object or list of objects, e.g.: 
+        [{license_url: str, attribution_name: str, attribution_url: str}, ...]
+    """
 
 
 class SourceData(ABC):
@@ -44,7 +61,7 @@ class SourceData(ABC):
         pass
 
     @abstractmethod
-    def get_samples(self) -> SourceMetaData:
+    def get_metadata(self) -> SourceMetaData:
         pass
 
     @abstractmethod

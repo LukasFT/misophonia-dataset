@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -24,10 +23,6 @@ class Esc50Dataset(SourceData):
         self._base_save_dir = save_dir if save_dir is not None else get_default_data_dir(dataset_name="ESC50")
         self._base_unzipped_dir = self._base_save_dir / "ESC-50-master"
 
-        # esc50 = self.get_metadata()
-        # esc50 = self.get_samples(esc50)
-        # self.metadata = train_valid_test_split(0.8, 0.2, 0, esc50)
-
     def is_downloaded(self) -> bool:
         return is_unzipped(self._base_save_dir / "ESC-50-master.zip")
 
@@ -49,27 +44,47 @@ class Esc50Dataset(SourceData):
             rename_extracted_dir=self._base_unzipped_dir.name,
         )
 
-    def get_samples(self) -> SourceMetaData:
+    def get_metadata(self) -> SourceMetaData:
         """
         Get standardized metadata for ESC50 dataset.
         """
         assert self.is_downloaded(), "Dataset is not downloaded yet."
-        esc50 = pd.read_csv(self._base_unzipped_dir / "meta" / "esc50.csv")
-        SourceMetaData.validate(esc50)
-        return esc50
+        meta = pd.read_csv(self._base_unzipped_dir / "meta" / "esc50.csv")
 
-        # # Only keeping metadata for triggers
-        # trigger_classes = [k for k in self.mapping.keys()]
-        # esc50_triggers = esc50[esc50["category"].isin(trigger_classes)]
+        meta["source_dataset"] = "ESC50"
 
-        # print("Filtering trigger samples from ESC50...")
-        # esc50_triggers.loc[:, "category"] = esc50_triggers["category"].apply(
-        #     lambda x: self.mapping[str(x)]["foams_mapping"]
-        # )
-        # esc50_triggers = esc50_triggers.rename(columns={"category": "labels"})
-        # esc50_triggers.loc[:, "isTrig"] = 1
+        base_audio_dir = (self._base_unzipped_dir / "audio").expanduser().resolve()
+        meta["file_path"] = meta["filename"].apply(lambda x: str(base_audio_dir / x))
 
-        # return esc50_triggers
+        meta["trigger_category"] = meta["category"].apply(
+            lambda x: self.mapping.get(str(x), {}).get("foams_mapping", None)
+        )
+
+        meta = meta.rename(columns={"src_file": "freesound_id"})
+
+        def get_dataset_license(*, is_esc10: bool) -> str:
+            return (
+                # Source sound license:
+                {  # TODO: Find license for the sounds themselves
+                    "license_url": "N/A",
+                    "attribution_name": "N/A",
+                    "attribution_url": "N/A",
+                },
+                # Dataset license:
+                {
+                    "license_url": (  # See their README.md
+                        "https://creativecommons.org/licenses/by/3.0/"
+                        if is_esc10
+                        else "https://creativecommons.org/licenses/by-nc/3.0/"
+                    ),
+                    "attribution_name": "K. J. Piczak",
+                    "attribution_url": "http://dx.doi.org/10.1145/2733373.2806390",
+                },
+            )
+
+        meta["licensing"] = meta["esc10"].apply(lambda x: get_dataset_license(is_esc10=x))
+
+        return SourceMetaData.validate(meta)
 
     def delete(self) -> None:
         self._base_save_dir.rmdir()
