@@ -33,7 +33,7 @@ class SourceMetaData(pa.DataFrameModel):
     freesound_id: pat.Series[int] = pa.Field(nullable=True)
     """FreeSound.org ID of the audio file, if available."""
 
-    sound_type: pat.Series[str] = pa.Field(isin={"control", "trigger", "background"})
+    label_type: pat.Series[str] = pa.Field(isin={"control", "trigger", "background"})
     """Type of sound."""
     labels: pat.Series[str] = pa.Field()
     """

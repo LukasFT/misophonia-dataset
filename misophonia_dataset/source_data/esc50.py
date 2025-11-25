@@ -64,12 +64,13 @@ class Esc50Dataset(SourceData):
 
         meta["labels"] = meta["esc50_category"].apply(lambda x: self.mapping.get(str(x), {}).get("foams_mapping", None))
 
-        meta = meta[meta["label"].notna()]  # Only use trigger sounds from ESC50
-        meta["sound_type"] = "trigger"
+        meta = meta[meta["labels"].notna()]  # Only use trigger sounds from ESC50
+        meta["label_type"] = "trigger"
+        meta["labels"] = meta["labels"].apply(lambda x: [x])  # Make lists of labels
 
         meta = meta.rename(columns={"esc50_src_file": "freesound_id"})
 
-        def get_dataset_license(*, is_esc10: bool) -> str:
+        def _get_dataset_license(*, is_esc10: bool) -> tuple[dict, ...]:
             return (
                 # Source sound license:
                 {  # TODO: Find license for the sounds themselves
@@ -89,7 +90,7 @@ class Esc50Dataset(SourceData):
                 },
             )
 
-        meta["licensing"] = meta["esc50_esc10"].apply(lambda x: get_dataset_license(is_esc10=x))
+        meta["licensing"] = meta["esc50_esc10"].apply(lambda x: _get_dataset_license(is_esc10=x))
 
         return SourceMetaData.validate(meta)
 
