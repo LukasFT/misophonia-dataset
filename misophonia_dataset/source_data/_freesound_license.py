@@ -6,6 +6,7 @@ import time
 from collections.abc import Collection
 from pathlib import Path
 
+import eliot
 import pandas as pd
 import requests
 
@@ -33,7 +34,10 @@ def generate_freesound_licenses(
     except requests.exceptions.RequestException as e:
         if retries > 0:
             backoff_time = 2 ** (10 - retries)
-            print(f"RequestException occurred: {e}. Retrying {retries} more times after {backoff_time} seconds...")
+            eliot.log_message(
+                f"RequestException occurred: {e}. Retrying {retries} more times after {backoff_time} seconds...",
+                level="warning",
+            )
             time.sleep(backoff_time)
             return generate_freesound_licenses(
                 freesound_ids=freesound_ids,
@@ -59,6 +63,9 @@ def _generate_freesound_licenses(
         lic = freesound_licenses["licensing"].loc[freesound_id] if freesound_id in freesound_licenses.index else None
 
         if lic is None:
+            if last_api_call == 0:
+                eliot.log_message("Starting to query FreeSound API for missing licenses...", level="info")
+
             while time.time() - last_api_call < max_seconds_per_call:
                 time.sleep(0.1)
             last_api_call = time.time()
@@ -75,11 +82,13 @@ def _generate_freesound_licenses(
     finally:
         # save updated licenses (also if an error occurred)
         if len(updates) > 0:
+            eliot.log_message(f"Saving {len(updates)} new freesound licenses to {LICENSE_STORE_PATH}...", level="debug")
             new_licenses = pd.DataFrame.from_dict(updates, orient="index")
             new_licenses.index.name = "freesound_id"
             all_licenses = pd.concat([freesound_licenses, new_licenses])
             all_licenses["licensing"] = all_licenses["licensing"].apply(json.dumps)
             all_licenses.to_csv(LICENSE_STORE_PATH)
+            eliot.log_message("Saved updated licenses.", level="debug")
 
 
 def _get_from_freesound_api(freesound_id: str) -> LicenseT:
@@ -141,18 +150,21 @@ def get_base_licensing_from_clap() -> None:
 
     """
     if LICENSE_STORE_PATH.exists():
-        print(f"License file {LICENSE_STORE_PATH} already exists, skipping generation.")
+        eliot.log_message(f"License file {LICENSE_STORE_PATH} already exists, skipping generation.", level="info")
         return
 
     license_in_path = Path("data/freesound_license_all.csv")
 
-    print("This script is used to generate a pre-made licese file")
-    print("Download https://drive.google.com/file/d/1xF3K5x0RAhBNGKSMvE13cuvrIZLs6M3K/view?usp=share_link manually")
-    print(f"Place it in {license_in_path}")
+    eliot.log_message("This script is used to generate a pre-made licese file", level="info")
+    eliot.log_message(
+        "Download https://drive.google.com/file/d/1xF3K5x0RAhBNGKSMvE13cuvrIZLs6M3K/view?usp=share_link manually",
+        level="info",
+    )
+    eliot.log_message(f"Place it in {license_in_path}", level="info")
     assert license_in_path.exists(), f"{license_in_path} does not exist"
 
     all_license = pd.read_csv(license_in_path)
-    print(f"Loaded {len(all_license)} license entries")
+    eliot.log_message(f"Loaded {len(all_license)} license entries", level="info")
 
     license_dicts = all_license.copy()
     license_dicts["licensing"] = all_license.apply(_generate_from_row, axis=1)
@@ -167,7 +179,7 @@ def get_base_licensing_from_clap() -> None:
 
     license_dicts.to_csv(LICENSE_STORE_PATH)
 
-    print(f"Saved license file to {LICENSE_STORE_PATH}")
+    eliot.log_message(f"Saved license file to {LICENSE_STORE_PATH}", level="info")
 
 
 if __name__ == "__main__":
