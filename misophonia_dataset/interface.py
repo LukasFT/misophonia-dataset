@@ -35,8 +35,12 @@ class SourceMetaData(pa.DataFrameModel):
 
     sound_type: pat.Series[str] = pa.Field(isin={"control", "trigger", "background"})
     """Type of sound."""
-    label: pat.Series[str] = pa.Field()
-    """Label according to the FOAMS taxonomy (if is_trig) and AudioSet (FSD50K) taxonomy (if not is_trig)."""
+    labels: pat.Series[str] = pa.Field()
+    """
+    Label according to the FOAMS taxonomy (if sound_type = 'trigger') and, otherwise, the AudioSet (FSD50K) taxonomy.
+    
+    There can be one more more labels. But all labels must be of the same sound_type. Any data point that has labels from multiple sound_types should be excluded.
+    """
 
     licensing: pat.Series[object] = pa.Field(nullable=True)
     """Licensing information. Can be an object or list of objects, e.g.: 
