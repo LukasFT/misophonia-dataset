@@ -2,6 +2,7 @@
 
 import json
 import os
+import time
 from collections.abc import Collection
 from pathlib import Path
 
@@ -22,12 +23,36 @@ def get_freesound_licenses() -> pd.DataFrame:
 def generate_freesound_licenses(
     freesound_ids: pd.Series,
     base_licenses: Collection[LicenseT] = (),
+    retries: int = 10,
+) -> pd.Series:
+    try:
+        return _generate_freesound_licenses(
+            freesound_ids=freesound_ids,
+            base_licenses=base_licenses,
+        )
+    except requests.exceptions.RequestException as e:
+        if retries > 0:
+            backoff_time = 2 ** (10 - retries)
+            print(f"RequestException occurred: {e}. Retrying {retries} more times after {backoff_time} seconds...")
+            time.sleep(backoff_time)
+            return generate_freesound_licenses(
+                freesound_ids=freesound_ids,
+                base_licenses=base_licenses,
+                retries=retries - 1,
+            )
+        else:
+            raise RuntimeError("Maximum retries reached for FreeSound API requests.") from e
+
+
+def _generate_freesound_licenses(
+    freesound_ids: pd.Series,
+    base_licenses: Collection[LicenseT] = (),
 ) -> pd.Series:
     freesound_licenses = get_freesound_licenses()
     updates = {}
 
     def _get_dataset_license(freesound_id: int) -> tuple[dict, ...]:
-        lic = freesound_licenses.loc[freesound_id] if freesound_id in freesound_licenses.index else None
+        lic = freesound_licenses["licensing"].loc[freesound_id] if freesound_id in freesound_licenses.index else None
 
         if lic is None:
             lic = _get_from_freesound_api(freesound_id)
@@ -38,17 +63,16 @@ def generate_freesound_licenses(
             *base_licenses,
         )
 
-    result = freesound_ids.astype(int).apply(lambda freesound_id: _get_dataset_license(freesound_id))
-
-    # save updated licenses
-    if len(updates) > 0:
-        new_licenses = pd.DataFrame.from_dict(updates, orient="index")
-        new_licenses.index.name = "freesound_id"
-        all_licenses = pd.concat([freesound_licenses, new_licenses])
-        all_licenses["licensing"] = all_licenses["licensing"].apply(json.dumps)
-        all_licenses.to_csv(LICENSE_STORE_PATH)
-
-    return result
+    try:
+        return freesound_ids.astype(int).apply(lambda freesound_id: _get_dataset_license(freesound_id))
+    finally:
+        # save updated licenses (also if an error occurred)
+        if len(updates) > 0:
+            new_licenses = pd.DataFrame.from_dict(updates, orient="index")
+            new_licenses.index.name = "freesound_id"
+            all_licenses = pd.concat([freesound_licenses, new_licenses])
+            all_licenses["licensing"] = all_licenses["licensing"].apply(json.dumps)
+            all_licenses.to_csv(LICENSE_STORE_PATH)
 
 
 def _get_from_freesound_api(freesound_id: str) -> LicenseT:
@@ -59,6 +83,14 @@ def _get_from_freesound_api(freesound_id: str) -> LicenseT:
 
     url = f"https://freesound.org/apiv2/sounds/{freesound_id}/?fields=license,username,url&token={api_token}"
     response = requests.get(url)
+
+    if response.status_code == 404:
+        return {
+            "license_url": "N/A",
+            "attribution_name": "N/A",
+            "attribution_url": "N/A",
+        }
+
     response.raise_for_status()
     data = response.json()
     return _generate_info(freesound_id, data["license"], data["username"])
