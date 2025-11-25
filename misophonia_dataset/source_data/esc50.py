@@ -3,8 +3,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..interface import LicenceT, MappingT, SourceData, SourceMetaData, get_default_data_dir
+from ..interface import MappingT, SourceData, SourceMetaData, get_default_data_dir
 from ._downloading import download_and_unzip, is_unzipped
+from ._freesound_license import generate_freesound_licenses
 
 
 class Esc50Dataset(SourceData):
@@ -63,33 +64,36 @@ class Esc50Dataset(SourceData):
 
         meta["labels"] = meta["esc50_category"].apply(lambda x: self.mapping.get(str(x), {}).get("foams_mapping", None))
 
-        meta = meta[meta["labels"].notna()]  # Only use trigger sounds from ESC50
+        meta = meta[meta["labels"].notna()].copy()  # Only use trigger sounds from ESC50
         meta["label_type"] = "trigger"
         meta["labels"] = meta["labels"].apply(lambda x: [x])  # Make lists of labels
 
         meta = meta.rename(columns={"esc50_src_file": "freesound_id"})
 
-        def _get_license(*, is_esc10: bool) -> tuple[LicenceT, ...]:
-            return (
-                # Source sound license:
-                {  # TODO: Find license for the sounds themselves
-                    "license_url": "N/A",
-                    "attribution_name": "N/A",
-                    "attribution_url": "N/A",
-                },
-                # Dataset license:
+        # The license of ESC50 depends on whether the sound is part of ESC10 or not
+        assert len(meta[meta["esc50_esc10"]]) == 0, (
+            "We assume no triggers are found in the ESC10 subset. If there is, please update the license handling code here."
+        )
+        # meta.loc[meta["esc50_esc10"] == True, "licensing"] = generate_freesound_licenses(
+        #     meta.loc[meta["esc50_esc10"] == True, "freesound_id"],
+        #     base_licenses=(
+        #         {
+        #             "license_url": "https://creativecommons.org/licenses/by/3.0/",
+        #             "attribution_name": "K. J. Piczak",
+        #             "attribution_url": "http://dx.doi.org/10.1145/2733373.2806390",
+        #         },
+        #     ),
+        # )
+        meta["licensing"] = generate_freesound_licenses(
+            meta["freesound_id"],
+            base_licenses=(
                 {
-                    "license_url": (  # See their README.md
-                        "https://creativecommons.org/licenses/by/3.0/"
-                        if is_esc10
-                        else "https://creativecommons.org/licenses/by-nc/3.0/"
-                    ),
+                    "license_url": "https://creativecommons.org/licenses/by-nc/3.0/",
                     "attribution_name": "K. J. Piczak",
                     "attribution_url": "http://dx.doi.org/10.1145/2733373.2806390",
                 },
-            )
-
-        meta["licensing"] = meta["esc50_esc10"].apply(lambda x: _get_license(is_esc10=x))
+            ),
+        )
 
         return SourceMetaData.validate(meta)
 
