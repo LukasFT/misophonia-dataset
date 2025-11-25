@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..interface import MappingT, SourceData, SourceMetaData, get_default_data_dir
-from ._downloading import download_file, is_unzipped
+from ._downloading import download_files, is_unzipped
 
 
 class Esc50Dataset(SourceData):
@@ -34,11 +34,16 @@ class Esc50Dataset(SourceData):
             save_dir (str): directory to save the dataset
 
         """
-        download_file(
-            url="https://github.com/karolpiczak/ESC-50/archive/33c8ce9eb2cf0b1c2f8bcf322eb349b6be34dbb6.zip",  # Latest commit per November 24, 2025
+        download_files(
+            files=(
+                {
+                    # Latest commit per November 24, 2025
+                    "url": "https://github.com/karolpiczak/ESC-50/archive/33c8ce9eb2cf0b1c2f8bcf322eb349b6be34dbb6.zip",
+                    "md5": "071b44018315e034b2c6e8064543d19c",
+                    "filename": "ESC-50-master.zip",
+                },
+            ),
             save_dir=self._base_save_dir,
-            md5="071b44018315e034b2c6e8064543d19c",
-            filename="ESC-50-master.zip",
             unzip=True,
             delete_zip=True,
             rename_extracted_dir=self._base_unzipped_dir.name,

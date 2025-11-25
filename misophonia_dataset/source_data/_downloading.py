@@ -5,6 +5,7 @@ import shutil
 import time
 import zipfile
 from pathlib import Path
+from typing import Iterable, Literal
 from urllib.parse import urlparse
 
 import eliot
@@ -28,50 +29,66 @@ def is_unzipped(file_path: Path, state_file: Path | None = None) -> bool:
     return _get_file_state(state_file).get("unzipped", False)
 
 
-def download_file(
+def download_files(
+    files: Iterable[dict[Literal["md5", "url", "filename"], str]],
     *,
-    url: str,
     save_dir: Path,
-    md5: str,
-    filename: str | None = None,
     unzip: bool = False,
     delete_zip: bool = False,
     rename_extracted_dir: str | None = None,
     state_file: Path | None = None,
     max_retries: int = 5,
 ) -> Path:
-    """
-    Helper function to download large files from the web. Displays progress bar and provides resume support.
-    Used primarily for FSD50K and FSD50K_eval datasets.
-
-    Params:
-        url (str): url from which to download the file
-        save_dir (Path): path to save the file
-        md5 (str): expected md5 checksum of the file
-        filename (str | None): optional name to save the file as (if None, uses name from URL)
-        unzip (bool): whether to unzip the file after downloading
-        delete_zip (bool): whether to delete the zip file after unzipping
-        rename_extracted_dir (str | None): optional new name for the extracted directory
-        state_file (Path | None): optional path to a JSON file to track download/unzip state
-        max_retries (int): number of times to retry download on failure
-    Returns:
-        the full path of the saved file
-    """
-
-    """
-    Download a large file with automatic retries and resume support.
-
-    Args:
-        url (str): URL of the file.
-        save_dir (Path): Directory to save into.
-        max_retries (int): Number of retry attempts.
-        backoff_factor (float): Exponential backoff multiplier.
-
-    Returns:
-        Path: Path to downloaded file.
-    """
     assert not (delete_zip and not unzip), "Cannot delete zip if not unzipping."
 
+    # Download all files
+    save_paths = []
+    for file_info in files:
+        save_paths.append(
+            _download_file_single(
+                url=file_info["url"],
+                save_dir=save_dir,
+                md5=file_info.get("md5"),
+                filename=file_info.get("filename"),
+                state_file=state_file,
+                max_retries=max_retries,
+            )
+        )
+
+    if unzip:
+        # Find all *.zip files
+        zip_files = tuple(p for p in save_paths if p.suffix.lower() == ".zip")
+        if len(zip_files) != 1:
+            raise ValueError(f"Expected exactly one zip file to unzip, found {len(zip_files)}: {zip_files}")
+
+        # Find files that have the same base name with .z** extensions
+        base_name = zip_files[0].stem
+        base_zip_path = zip_files[0]
+        part_file_paths = tuple(
+            p
+            for p in save_paths
+            if p.name.startswith(base_name) and p != base_zip_path and p.suffix.lower().startswith(".z")
+        )
+
+        _unzip_file(
+            base_zip_path,
+            part_file_paths=part_file_paths,
+            extract_to=save_dir,
+            state_file=state_file,
+            delete_zip=delete_zip,
+            rename_extracted_dir=rename_extracted_dir,
+        )
+
+
+def _download_file_single(
+    *,
+    url: str,
+    save_dir: Path,
+    md5: str,
+    filename: str | None = None,
+    state_file: Path | None = None,
+    max_retries: int = 5,
+) -> Path:
     # Remove query params
     filename = os.path.basename(urlparse(url).path) if filename is None else filename
     save_dir = Path(save_dir)
@@ -83,7 +100,7 @@ def download_file(
         for attempt in range(1, max_retries + 1):
             _set_file_state(state_file, downloaded=False)
             try:
-                _download_single(url, save_path)
+                _download_single_inner(url, save_path)
                 break  # Successful download, exit retry loop
             except Exception as e:
                 if attempt == max_retries:
@@ -102,91 +119,11 @@ def download_file(
 
         _set_file_state(state_file, downloaded=True)
 
-    if unzip:
-        _unzip_file(
-            save_path, save_dir, state_file=state_file, delete_zip=delete_zip, rename_extracted_dir=rename_extracted_dir
-        )
-
     return save_path
 
 
-def _get_default_state_file(save_path: Path) -> Path:
-    return save_path.parent / f"state_{save_path.name}.json"
-
-
-def _is_correct_md5(file: Path, md5: str) -> bool:
-    with file.open("rb") as f:
-        md5_hash = hashlib.md5()
-        while chunk := f.read(8192):
-            md5_hash.update(chunk)
-        md5_hash = md5_hash.hexdigest()
-
-    return md5_hash == md5
-
-
-def _unzip_file(
-    zip_path: Path,
-    extract_to: Path,
-    state_file: Path | None = None,
-    *,
-    delete_zip: bool = False,
-    rename_extracted_dir: str | None = None,
-) -> None:
-    state_file = state_file or (extract_to / f"state_unzip_{zip_path.name}.json")
-
-    if _get_file_state(state_file).get("unzipped", False):
-        eliot.log_message(f"File {zip_path} has already been unzipped to {extract_to}", level="info")
-        return
-
-    eliot.log_message(f"Unzipping file {zip_path} to {extract_to}", level="debug")
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(extract_to)
-
-        if rename_extracted_dir:
-            # Check if there is exactly one top-level directory
-            top_level_items = {Path(p).parts[0] for p in zip_ref.namelist()}
-            # Filter out __MACOSX if present, as it's a common artifact
-            top_level_items.discard("__MACOSX")
-
-            if len(top_level_items) == 1:
-                original_name = list(top_level_items)[0]
-                original_path = extract_to / original_name
-                new_path = extract_to / rename_extracted_dir
-
-                if original_path.is_dir():
-                    if new_path.exists():
-                        shutil.rmtree(new_path)
-                    original_path.rename(new_path)
-                    eliot.log_message(f"Renamed {original_path.name} to {new_path.name}", level="debug")
-            else:
-                eliot.log_message(
-                    f"Skipping rename: Zip file does not have a single top-level directory (found {top_level_items})",
-                    level="warning",
-                )
-
-    if delete_zip:
-        zip_path.unlink()  # Delete zip file after unzipping
-
-    _set_file_state(state_file, unzipped=True)
-
-
-def _get_file_state(state_file: Path) -> dict:
-    if not state_file.exists():
-        return {}
-    with state_file.open("r") as f:
-        return json.load(f)
-
-
-def _set_file_state(state_file: Path, **new_state: dict) -> None:
-    state = _get_file_state(state_file)
-    state.update(new_state)
-    with state_file.open("w") as f:
-        json.dump(state, f)
-
-
-def _download_single(url: str, save_path: Path) -> None:
+def _download_single_inner(url: str, save_path: Path) -> None:
     # Check for partial file
-
     expected_size = _get_expected_size(url)
     headers = {}
     if save_path.exists():
@@ -231,6 +168,141 @@ def _download_single(url: str, save_path: Path) -> None:
             if chunk:
                 f.write(chunk)
                 bar.update(len(chunk))
+
+
+def _get_default_state_file(save_path: Path) -> Path:
+    return save_path.parent / f"state_{save_path.name}.json"
+
+
+def _is_correct_md5(file: Path, md5: str) -> bool:
+    with file.open("rb") as f:
+        md5_hash = hashlib.md5()
+        while chunk := f.read(8192):
+            md5_hash.update(chunk)
+        md5_hash = md5_hash.hexdigest()
+
+    return md5_hash == md5
+
+
+def _unzip_file(
+    base_zip_path: Path,
+    *,
+    part_file_paths: Iterable[Path],
+    extract_to: Path,
+    state_file: Path | None = None,
+    delete_zip: bool = False,
+    rename_extracted_dir: str | None = None,
+) -> None:
+    state_file = state_file or _get_default_state_file(base_zip_path)
+
+    if _get_file_state(state_file).get("unzipped", False):
+        eliot.log_message(f"File {base_zip_path} has already been unzipped to {extract_to}", level="info")
+        return
+
+    base_zip_path = Path(base_zip_path).resolve()
+    part_file_paths = tuple(Path(p).resolve() for p in part_file_paths)
+
+    if len(part_file_paths) == 0:
+        eliot.log_message(f"Unzipping file {base_zip_path} to {extract_to}", level="debug")
+        _unzip_simple(zip_path=base_zip_path, extract_to=extract_to, rename_extracted_dir=rename_extracted_dir)
+    else:
+        eliot.log_message(f"Unzipping {base_zip_path} with parts {part_file_paths} to {extract_to}", level="debug")
+
+    if delete_zip:
+        base_zip_path.unlink()  # Delete zip file after unzipping
+        for part_path in part_file_paths:
+            part_path.unlink()
+
+    _set_file_state(state_file, unzipped=True)
+
+
+def _unzip_simple(
+    *,
+    zip_path: Path,
+    extract_to: Path,
+    rename_extracted_dir: str | None = None,
+) -> None:
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+        zip_ref.extractall(extract_to)
+
+        if rename_extracted_dir:
+            # Check if there is exactly one top-level directory
+            top_level_items = {Path(p).parts[0] for p in zip_ref.namelist()}
+            # Filter out __MACOSX if present, as it's a common artifact
+            top_level_items.discard("__MACOSX")
+
+            if len(top_level_items) == 1:
+                original_name = list(top_level_items)[0]
+                original_path = extract_to / original_name
+                new_path = extract_to / rename_extracted_dir
+
+                if original_path.is_dir():
+                    if new_path.exists():
+                        shutil.rmtree(new_path)
+                    original_path.rename(new_path)
+                    eliot.log_message(f"Renamed {original_path.name} to {new_path.name}", level="debug")
+            else:
+                eliot.log_message(
+                    f"Skipping rename: Zip file does not have a single top-level directory (found {top_level_items})",
+                    level="warning",
+                )
+
+
+def _unzip_with_parts(
+    *,
+    base_zip_path: Path,
+    part_file_paths: Iterable[Path],
+    extract_to: Path,
+    rename_extracted_dir: str | None = None,
+) -> None:
+    """Use 7zip from command line to unzip a multi-part zip file."""
+
+    # Ensure 7zip is installed
+    if shutil.which("7z") is None:
+        raise RuntimeError("7zip (7z) is not installed or not found in PATH. Cannot unzip multi-part zip files.")
+
+    # Build command
+    command = ["7z", "x", str(base_zip_path), f"-o{str(extract_to)}", "-y"]
+    for part_path in part_file_paths:
+        command.append(str(part_path))
+    # Execute command
+    import subprocess
+
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"7zip failed to unzip files: {result.stderr}")
+
+    if rename_extracted_dir:
+        # Check if there is exactly one top-level directory
+        extracted_items = list(extract_to.iterdir())
+        top_level_dirs = [p for p in extracted_items if p.is_dir()]
+        if len(top_level_dirs) == 1:
+            original_path = top_level_dirs[0]
+            new_path = extract_to / rename_extracted_dir
+
+            if new_path.exists():
+                shutil.rmtree(new_path)
+            original_path.rename(new_path)
+            eliot.log_message(f"Renamed {original_path.name} to {new_path.name}", level="debug")
+        else:
+            eliot.log_message(
+                f"Skipping rename: Extracted files do not have a single top-level directory (found {[p.name for p in top_level_dirs]})",
+                level="warning",
+            )
+
+
+def _get_file_state(state_file: Path) -> dict:
+    if not state_file.exists():
+        return {}
+    with state_file.open("r") as f:
+        return json.load(f)
+
+
+def _set_file_state(state_file: Path, **new_state: dict) -> None:
+    state = _get_file_state(state_file)
+    state.update(new_state)
+    with state_file.open("w") as f:
+        json.dump(state, f)
 
 
 def _get_expected_size(url: str) -> int | None:
