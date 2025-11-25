@@ -50,18 +50,19 @@ class Esc50Dataset(SourceData):
         """
         assert self.is_downloaded(), "Dataset is not downloaded yet."
         meta = pd.read_csv(self._base_unzipped_dir / "meta" / "esc50.csv")
+        meta = meta.add_prefix("esc50_")  # to avoid confusion with other datasets
 
         meta["source_dataset"] = "ESC50"
 
         base_audio_dir = (self._base_unzipped_dir / "audio").expanduser().resolve()
-        meta["file_path"] = meta["filename"].apply(lambda x: str(base_audio_dir / x))
+        meta["file_path"] = meta["esc50_filename"].apply(lambda x: str(base_audio_dir / x))
 
-        meta["label"] = meta["category"].apply(lambda x: self.mapping.get(str(x), {}).get("foams_mapping", None))
+        meta["label"] = meta["esc50_category"].apply(lambda x: self.mapping.get(str(x), {}).get("foams_mapping", None))
 
         meta = meta[meta["label"].notna()]  # Only use trigger sounds from ESC50
         meta["sound_type"] = "trigger"
 
-        meta = meta.rename(columns={"src_file": "freesound_id"})
+        meta = meta.rename(columns={"esc50_src_file": "freesound_id"})
 
         def get_dataset_license(*, is_esc10: bool) -> str:
             return (
@@ -83,7 +84,7 @@ class Esc50Dataset(SourceData):
                 },
             )
 
-        meta["licensing"] = meta["esc10"].apply(lambda x: get_dataset_license(is_esc10=x))
+        meta["licensing"] = meta["esc50_esc10"].apply(lambda x: get_dataset_license(is_esc10=x))
 
         return SourceMetaData.validate(meta)
 
