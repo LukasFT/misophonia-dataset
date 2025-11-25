@@ -50,11 +50,18 @@ def _generate_freesound_licenses(
 ) -> pd.Series:
     freesound_licenses = get_freesound_licenses()
     updates = {}
+    last_api_call = 0
+    max_api_calls_per_minute = 55
+    max_seconds_per_call = 60 / max_api_calls_per_minute
 
     def _get_dataset_license(freesound_id: int) -> tuple[dict, ...]:
+        nonlocal last_api_call
         lic = freesound_licenses["licensing"].loc[freesound_id] if freesound_id in freesound_licenses.index else None
 
         if lic is None:
+            while time.time() - last_api_call < max_seconds_per_call:
+                time.sleep(0.1)
+            last_api_call = time.time()
             lic = _get_from_freesound_api(freesound_id)
             updates[freesound_id] = {"licensing": lic}
 
