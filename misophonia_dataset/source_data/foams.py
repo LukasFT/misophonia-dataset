@@ -1,93 +1,86 @@
-import json
-import os
-import shutil
-import zipfile
 from pathlib import Path
 
 import pandas as pd
-import requests
 
-from ..interface import SourceData
-from ._downloading import download_file
-from ._utils import train_valid_test_split
-
-MODULE_DIR = Path(__file__).parent  # TODO: Refactor!
+from ..interface import SourceData, SourceMetaData, get_default_data_dir
+from ._downloading import download_and_unzip, download_single_file, is_downloaded, is_unzipped
 
 
-class FOAMS(SourceData):
+class FoamsDataset(SourceData):
     """
     Class for FOAMS misophonia trigger sounds. Downloaded from https://zenodo.org/records/7109069
     """
 
-    def __init__(self, save_dir: Path) -> None:
-        self.json_path = Path(os.path.join(MODULE_DIR, "foams-extracted.json"))
-        self.path = self.download_data(save_dir)
+    def __init__(self, save_dir: Path | None = None) -> None:
+        self._base_save_dir = save_dir if save_dir is not None else get_default_data_dir(dataset_name="FOAMS")
 
-        foams_df = self.get_metadata(self.path)
-        self.metadata = train_valid_test_split(0.8, 0.2, 0, foams_df)
+    def is_downloaded(self) -> bool:
+        return is_unzipped(file_path=self._base_save_dir / "FOAMS_processed_audio.zip") and is_downloaded(
+            file_path=self._base_save_dir / "segmentation_info.csv"
+        )
 
-    def download_data(self, save_dir: Path) -> Path:
+    def download_data(self) -> None:
         """
         Download 50 trigger samples from FOAMS at https://zenodo.org/records/7109069/files/. First checks if they have been downloaded alrady.
         Params:
             save_dir
         """
-        url = "https://zenodo.org/records/7109069/files/FOAMS_processed_audio.zip?download=1"
-        if not os.path.exists(self.json_path):
-            unzipped_data = download_file(url, save_dir)
+        download_and_unzip(
+            files=(
+                {
+                    # Latest commit per November 24, 2025
+                    "url": "https://zenodo.org/records/8170225/files/FOAMS_processed_audio.zip?download=1",
+                    "md5": "89e717006cea3687384baa3c86d6307c",
+                },
+            ),
+            save_dir=self._base_save_dir,
+            delete_zip=True,
+            rename_extracted_dir="processed_audio",
+        )
+        download_single_file(
+            url="https://zenodo.org/records/8170225/files/segmentation_info.csv?download=1",
+            md5="0ac1de8a66ffb52be34722ad8cd5e514",
+            save_dir=self._base_save_dir,
+        )
 
-            with zipfile.ZipFile(unzipped_data, "r") as zip_ref:
-                zip_ref.extractall(save_dir)
+    def get_metadata(self) -> SourceMetaData:
+        meta = pd.read_csv(self._base_save_dir / "segmentation_info.csv")
+        meta = meta.add_prefix("foams_")  # to avoid confusion with other datasets
 
-            extracted_path = os.path.join(save_dir, "FOAMS_processed_audio")
-            with open(self.json_path, "w") as f:
-                json.dump({"Path": extracted_path}, f, indent=4)
+        meta["source_dataset"] = "FOAMS"
 
-            print("Removing FOAMS zip...")
-            os.remove(unzipped_data)
-        else:
-            print("FOAMS dataset has already been downloaded and unzipped.")
+        meta = meta.rename(
+            columns={
+                "foams_id": "freesound_id",  # FOAMS IDs correspond to FreeSound IDs
+                "foams_label": "labels",  # FOAMS labels are already aligned to FOAMS taxonomy
+            }
+        )
 
-        with open(self.json_path, "r") as f:
-            data = json.load(f)
-            return data["Path"]
+        meta["labels"] = meta["labels"].apply(lambda x: [x])  # Make singular lists to align with other datasets
+        meta["label_type"] = "trigger"  # All FOAMS sounds are triggers
+        meta["file_path"] = meta["freesound_id"].apply(
+            lambda x: str(self._base_save_dir / "processed_audio" / f"{x}_processed.wav")
+        )
 
-    def get_metadata(self, extracted_path: Path) -> pd.DataFrame:
-        if not os.path.exists(self.json_path):
-            raise FileNotFoundError("Please download FOAMS dataset before getting metadata.")
+        def _get_dataset_license() -> tuple[dict, ...]:
+            return (
+                # Source sound license:
+                {  # TODO: Find license for the sounds themselves
+                    "license_url": "N/A",
+                    "attribution_name": "N/A",
+                    "attribution_url": "N/A",
+                },
+                # Dataset license:
+                {
+                    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+                    "attribution_name": "D. M. Orloff, D. Benesch & H. A. Hansen",
+                    "attribution_url": "https://doi.org/10.5334/jopd.94",
+                },
+            )
 
-        with open(self.json_path, "r") as f:
-            data = json.load(f)
-            if "Meta" in data.keys():
-                print("Metadata has already been downloaded.")
-                metadata = pd.read_csv(data["Meta"])
-                metadata = metadata.rename(columns={"id": "filename", "label": "labels"})
-                metadata.loc[:, "isTrig"] = 1
-                return metadata
-        # otherise download from the web
-        url = "https://zenodo.org/record/7109069/files/segmentation_info.csv?download=1"
-        response = requests.get(url)
-        response.raise_for_status()
+        meta["licensing"] = meta["freesound_id"].apply(lambda _: _get_dataset_license())
 
-        metadata_path = os.path.join(extracted_path, "segmentation_info.csv")
-        with open(metadata_path, "wb") as f:
-            f.write(response.content)
-
-        with open(self.json_path, "r+") as f:
-            data = json.load(f)
-            data["Meta"] = metadata_path
-            json.dump(data, f, indent=4)
-
-        metadata = pd.read_csv(metadata_path)
-        metadata = metadata.rename(columns={"id": "filename", "label": "labels"})
-        metadata.loc[:, "isTrig"] = 1
-        return metadata
-
-    def get_samples(self) -> pd.DataFrame:
-        pass
+        return SourceMetaData.validate(meta)
 
     def delete(self) -> None:
-        shutil.rmtree(self.path)
-
-    def __str__(self) -> str:
-        return "FOAMS Dataset"
+        self._base_save_dir.rmdir()
