@@ -1,5 +1,6 @@
 """This is a script to transform the freesound information from https://github.com/LAION-AI/audio-dataset/tree/main/laion-audio-630k into our format and save it"""
 
+import json
 import os
 from collections.abc import Collection
 from pathlib import Path
@@ -13,35 +14,39 @@ LICENSE_STORE_PATH = Path(__file__).parent / "freesound_license.csv"
 
 
 def get_freesound_licenses() -> pd.DataFrame:
-    return pd.read_csv(LICENSE_STORE_PATH, index_col="freesound_id")
+    freesound_licenses = pd.read_csv(LICENSE_STORE_PATH, index_col="freesound_id")
+    freesound_licenses["licensing"] = freesound_licenses["licensing"].apply(json.loads)
+    return freesound_licenses
 
 
 def generate_freesound_licenses(
     freesound_ids: pd.Series,
     base_licenses: Collection[LicenseT] = (),
-    fallback: LicenseT = {"license_url": "N/A", "attribution_name": "Unknown Author", "attribution_url": ""},
 ) -> pd.Series:
     freesound_licenses = get_freesound_licenses()
+    updates = {}
 
-    def _get_dataset_license(freesound_id: str) -> tuple[dict, ...]:
-        license = freesound_licenses.get(freesound_id)
+    def _get_dataset_license(freesound_id: int) -> tuple[dict, ...]:
+        lic = freesound_licenses.loc[freesound_id] if freesound_id in freesound_licenses.index else None
 
-        if license is None:
-            license = _get_from_freesound_api(freesound_id)
-            freesound_licenses.loc[freesound_id] = license  # Cache for future use
-
-        if license is None:
-            license = fallback
+        if lic is None:
+            lic = _get_from_freesound_api(freesound_id)
+            updates[freesound_id] = {"licensing": lic}
 
         return (
-            freesound_licenses.get(freesound_id, fallback),
+            lic,
             *base_licenses,
         )
 
-    result = freesound_ids.astype(str).apply(lambda freesound_id: _get_dataset_license(freesound_id))
+    result = freesound_ids.astype(int).apply(lambda freesound_id: _get_dataset_license(freesound_id))
 
     # save updated licenses
-    freesound_licenses.to_csv(LICENSE_STORE_PATH)
+    if len(updates) > 0:
+        new_licenses = pd.DataFrame.from_dict(updates, orient="index")
+        new_licenses.index.name = "freesound_id"
+        all_licenses = pd.concat([freesound_licenses, new_licenses])
+        all_licenses["licensing"] = all_licenses["licensing"].apply(json.dumps)
+        all_licenses.to_csv(LICENSE_STORE_PATH)
 
     return result
 
@@ -118,6 +123,8 @@ def get_base_licensing_from_clap() -> None:
     license_dicts = license_dicts[license_dicts["licensing"].notna()]
 
     license_dicts = license_dicts[~license_dicts.index.duplicated(keep="first")]
+
+    license_dicts["licensing"] = license_dicts["licensing"].apply(json.dumps)
 
     license_dicts.to_csv(LICENSE_STORE_PATH)
 
