@@ -107,7 +107,15 @@ def _get_from_freesound_api(freesound_id: str) -> LicenseT:
             "attribution_url": "N/A",
         }
 
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 429:
+            fields = response.json()
+            raise RuntimeError(f"Rate limit exceeded: {fields['detail']}") from e
+        else:
+            raise e
+
     data = response.json()
     return _generate_info(freesound_id, data["license"], data["username"])
 
@@ -142,19 +150,8 @@ def _generate_from_row(row) -> LicenseT:  # noqa: ANN001
     return _generate_info(row["id"], row["license"], row["username"])
 
 
-def get_base_licensing_from_clap() -> None:
-    """
-    Generate a base license file from the CLAP data.
-
-    This was the largest available collection of FreeSound license information we could find, in order to limit API calls to FreeSound.
-
-    """
-    if LICENSE_STORE_PATH.exists():
-        eliot.log_message(f"License file {LICENSE_STORE_PATH} already exists, skipping generation.", level="info")
-        return
-
+def _get_license_info_from_clap() -> pd.DataFrame:
     license_in_path = Path("data/freesound_license_all.csv")
-
     eliot.log_message("This script is used to generate a pre-made licese file", level="info")
     eliot.log_message(
         "Download https://drive.google.com/file/d/1xF3K5x0RAhBNGKSMvE13cuvrIZLs6M3K/view?usp=share_link manually",
@@ -162,25 +159,71 @@ def get_base_licensing_from_clap() -> None:
     )
     eliot.log_message(f"Place it in {license_in_path}", level="info")
     assert license_in_path.exists(), f"{license_in_path} does not exist"
-
     all_license = pd.read_csv(license_in_path)
     eliot.log_message(f"Loaded {len(all_license)} license entries", level="info")
-
     license_dicts = all_license.copy()
     license_dicts["licensing"] = all_license.apply(_generate_from_row, axis=1)
     license_dicts = license_dicts[["id", "licensing"]].rename(columns={"id": "freesound_id"})
     license_dicts = license_dicts.set_index("freesound_id")
-
     license_dicts = license_dicts[license_dicts["licensing"].notna()]
-
     license_dicts = license_dicts[~license_dicts.index.duplicated(keep="first")]
-
     license_dicts["licensing"] = license_dicts["licensing"].apply(json.dumps)
+    return license_dicts
 
-    license_dicts.to_csv(LICENSE_STORE_PATH)
 
+def _get_fsd50k_license_info() -> pd.DataFrame:
+    from .fsd50k import Fsd50kDataset
+
+    fsd50k = Fsd50kDataset()
+    assert fsd50k.is_downloaded(), "FSD50K dataset must be downloaded to extract license information"
+
+    info_dev = fsd50k._base_save_dir / "metadata" / "dev_clips_info_FSD50K.json"
+    info_eval = fsd50k._base_save_dir / "metadata" / "eval_clips_info_FSD50K.json"
+    all_info = {}
+
+    for info_path in [info_dev, info_eval]:
+        with open(info_path, "r") as f:
+            info = json.load(f)
+        all_info.update(info)
+
+    license_dicts = {
+        int(freesound_id): {
+            "licensing": _generate_info(
+                freesound_id,
+                clip_info["license"],
+                clip_info["uploader"],
+            )
+        }
+        for freesound_id, clip_info in all_info.items()
+    }
+    license_df = pd.DataFrame.from_dict(license_dicts, orient="index")
+    license_df.index.name = "freesound_id"
+    license_df["licensing"] = license_df["licensing"].apply(json.dumps)
+    return license_df
+
+
+def get_base_licensing() -> None:
+    """
+    Generate a base license file from the CLAP data.
+
+    This was the largest available collection of FreeSound license information we could find, in order to limit API calls to FreeSound.
+
+    """
+    clap_license_info = _get_license_info_from_clap()
+    fsd50k_license_info = _get_fsd50k_license_info()
+
+    if LICENSE_STORE_PATH.exists():
+        # append new licenses to existing file
+        existing_licenses = pd.read_csv(LICENSE_STORE_PATH, index_col="freesound_id")
+        combined_licenses = pd.concat([existing_licenses, clap_license_info, fsd50k_license_info])
+        combined_licenses = combined_licenses[~combined_licenses.index.duplicated(keep="first")]
+        combined_licenses.to_csv(LICENSE_STORE_PATH)
+        eliot.log_message(
+            f"Appended {len(combined_licenses) - len(existing_licenses)} new licenses to existing license file at {LICENSE_STORE_PATH}",
+            level="info",
+        )
     eliot.log_message(f"Saved license file to {LICENSE_STORE_PATH}", level="info")
 
 
 if __name__ == "__main__":
-    get_base_licensing_from_clap()
+    get_base_licensing()

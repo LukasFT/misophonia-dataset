@@ -5,6 +5,7 @@ import pandas as pd
 
 from ..interface import MappingT, SourceData, SourceMetaData, get_default_data_dir
 from ._downloading import download_and_unzip, is_unzipped
+from ._freesound_license import generate_freesound_licenses
 
 
 class Fsd50kDataset(SourceData):
@@ -178,23 +179,16 @@ class Fsd50kDataset(SourceData):
 
         meta[["label_type", "labels"]] = meta.apply(_determine_label_type_and_labels, axis=1, result_type="expand")
 
-        def _get_dataset_license() -> tuple[dict, ...]:
-            return (
-                # Source sound license:
-                {  # TODO: Find license for the sounds themselves
-                    "license_url": "N/A",
-                    "attribution_name": "N/A",
-                    "attribution_url": "N/A",
-                },
-                # Dataset license:
+        meta["licensing"] = generate_freesound_licenses(
+            meta["freesound_id"],
+            base_licenses=(
                 {
                     "license_url": "https://creativecommons.org/licenses/by/4.0/",
                     "attribution_name": "E. Fonseca, X. Favory, J. Pons, F. Font & X. Serra",
                     "attribution_url": "https://ieeexplore.ieee.org/document/9645159",
                 },
-            )
-
-        meta["licensing"] = meta["freesound_id"].apply(lambda _: _get_dataset_license())
+            ),
+        )
 
         return SourceMetaData.validate(meta)
 
