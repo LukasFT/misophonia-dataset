@@ -19,7 +19,7 @@ def train_valid_test_split(
     Returns:
         Metadata dataframe with "split" column added
     """
-    raise NotImplementedError("We should use: (a) FSD50K id, and (b) a hasing function as fallback")
+    raise NotImplementedError()
 
     # approx_split_size = {
     #     "test": 0.2,
