@@ -56,9 +56,10 @@ class Esc50Dataset(SourceData):
         base_audio_dir = (self._base_unzipped_dir / "audio").expanduser().resolve()
         meta["file_path"] = meta["filename"].apply(lambda x: str(base_audio_dir / x))
 
-        meta["trigger_category"] = meta["category"].apply(
-            lambda x: self.mapping.get(str(x), {}).get("foams_mapping", None)
-        )
+        meta["label"] = meta["category"].apply(lambda x: self.mapping.get(str(x), {}).get("foams_mapping", None))
+
+        meta = meta[meta["label"].notna()]  # Only use trigger sounds from ESC50
+        meta["sound_type"] = "trigger"
 
         meta = meta.rename(columns={"src_file": "freesound_id"})
 

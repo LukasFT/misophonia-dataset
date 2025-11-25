@@ -33,8 +33,10 @@ class SourceMetaData(pa.DataFrameModel):
     freesound_id: pat.Series[int] = pa.Field(nullable=True)
     """FreeSound.org ID of the audio file, if available."""
 
-    trigger_category: pat.Series[str] = pa.Field(nullable=True)
-    """Trigger category according to FOAMS taxonomy."""
+    sound_type: pat.Series[str] = pa.Field(isin={"control", "trigger", "background"})
+    """Type of sound."""
+    label: pat.Series[str] = pa.Field()
+    """Label according to the FOAMS taxonomy (if is_trig) and AudioSet (FSD50K) taxonomy (if not is_trig)."""
 
     licensing: pat.Series[object] = pa.Field(nullable=True)
     """Licensing information. Can be an object or list of objects, e.g.: 
