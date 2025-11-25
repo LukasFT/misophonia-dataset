@@ -10,7 +10,7 @@ DEFAULT_DIR = NotImplementedError  # TODO: Refactor!
 MappingT: TypeAlias = dict[str, dict[Literal["foams_mapping"], str]]
 """The structure of a mapping from dataset-specific classes to FOAMS classes."""
 
-LicenceT: TypeAlias = dict[Literal["license_url", "attribution_name", "attribution_url"], str]
+LicenseT: TypeAlias = dict[Literal["license_url", "attribution_name", "attribution_url"], str]
 """The structure of a license information dictionary."""
 
 

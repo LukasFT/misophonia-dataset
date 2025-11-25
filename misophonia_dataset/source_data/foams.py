@@ -4,6 +4,7 @@ import pandas as pd
 
 from ..interface import SourceData, SourceMetaData, get_default_data_dir
 from ._downloading import download_and_unzip, download_single_file, is_downloaded, is_unzipped
+from ._freesound_license import generate_freesound_licenses
 
 
 class FoamsDataset(SourceData):
@@ -62,23 +63,16 @@ class FoamsDataset(SourceData):
             lambda x: str(self._base_save_dir / "processed_audio" / f"{x}_processed.wav")
         )
 
-        def _get_dataset_license() -> tuple[dict, ...]:
-            return (
-                # Source sound license:
-                {  # TODO: Find license for the sounds themselves
-                    "license_url": "N/A",
-                    "attribution_name": "N/A",
-                    "attribution_url": "N/A",
-                },
-                # Dataset license:
+        meta["licensing"] = generate_freesound_licenses(
+            meta["freesound_id"],
+            base_licenses=(
                 {
                     "license_url": "https://creativecommons.org/licenses/by/4.0/",
                     "attribution_name": "D. M. Orloff, D. Benesch & H. A. Hansen",
                     "attribution_url": "https://doi.org/10.5334/jopd.94",
                 },
-            )
-
-        meta["licensing"] = meta["freesound_id"].apply(lambda _: _get_dataset_license())
+            ),
+        )
 
         return SourceMetaData.validate(meta)
 
