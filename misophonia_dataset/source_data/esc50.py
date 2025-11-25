@@ -24,7 +24,7 @@ class Esc50Dataset(SourceData):
         self._base_unzipped_dir = self._base_save_dir / "ESC-50-master"
 
     def is_downloaded(self) -> bool:
-        return is_unzipped(self._base_save_dir / "ESC-50-master.zip")
+        return is_unzipped(file_path=self._base_save_dir / "ESC-50-master.zip")
 
     def download_data(self) -> None:
         """

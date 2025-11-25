@@ -23,10 +23,11 @@ def is_downloaded(file_path: Path, state_file: Path | None = None) -> bool:
     return _get_file_state(state_file).get("downloaded", False)
 
 
-def is_unzipped(file_path: Path, state_file: Path | None = None) -> bool:
+def is_unzipped(*, file_path: Path | None = None, state_file: Path | None = None) -> bool:
     """
     Checks if a file has been unzipped based on the state file.
     """
+    assert file_path is not None or state_file is not None, "Either file_path or state_file must be provided."
     state_file = state_file or _get_default_state_file(file_path)
     return _get_file_state(state_file).get("unzipped", False)
 
@@ -67,7 +68,7 @@ def download_files(
                 file_info = futures[future]
                 raise RuntimeError(f"Failed to download {file_info['url']}") from exc
 
-    if unzip and not is_unzipped(save_paths[0], state_file=state_file):
+    if unzip and not is_unzipped(state_file=state_file):
         # Find all *.zip files
         zip_files = tuple(p for p in save_paths if p.suffix.lower() == ".zip")
         if len(zip_files) != 1:
