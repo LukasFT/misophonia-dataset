@@ -15,10 +15,11 @@ import requests
 from tqdm import tqdm
 
 
-def is_downloaded(file_path: Path, state_file: Path | None = None) -> bool:
+def is_downloaded(*, file_path: Path, state_file: Path | None = None) -> bool:
     """
     Checks if a file has been downloaded based on the state file.
     """
+    assert file_path is not None or state_file is not None, "Either file_path or state_file must be provided."
     state_file = state_file or _get_default_state_file(file_path)
     return _get_file_state(state_file).get("downloaded", False)
 
@@ -32,24 +33,41 @@ def is_unzipped(*, file_path: Path | None = None, state_file: Path | None = None
     return _get_file_state(state_file).get("unzipped", False)
 
 
-def download_files(
+def download_and_unzip(
     files: Iterable[dict[Literal["md5", "url", "filename"], str]],
     *,
     save_dir: Path,
-    unzip: bool = False,
     delete_zip: bool = False,
     rename_extracted_dir: str | None = None,
     state_file: Path | None = None,
     max_retries: int = 5,
 ) -> Path:
-    assert not (delete_zip and not unzip), "Cannot delete zip if not unzipping."
+    """
+    Downloads and unzips files from given URLs, with support for resuming and progress tracking, as well as multi-part zip files.
 
+    Args:
+        files: An iterable of dictionaries, each containing:
+            - "url": The URL to download the file from.
+            - "md5": The expected MD5 checksum of the file.
+            - "filename" (optional): The name to save the file as. If not provided
+                the filename is extracted from the URL.
+        save_dir: Directory to save the downloaded files.
+        delete_zip: Whether to delete the zip file after extraction.
+        rename_extracted_dir: If provided, renames the extracted directory to this name.
+        state_file: Path to a JSON file to track download and unzip state. If not provided
+            a default state file will be created in the same directory as the downloaded file.
+        max_retries: Maximum number of retries for downloading each file.
+
+    Returns:
+        Path to the extracted directory.
+
+    """
     # Download all files
     save_paths = []
     with ProcessPoolExecutor() as executor:
         futures = {
             executor.submit(
-                _download_file_single,
+                download_single_file,
                 url=file_info["url"],
                 save_dir=save_dir,
                 md5=file_info.get("md5"),
@@ -68,15 +86,15 @@ def download_files(
                 file_info = futures[future]
                 raise RuntimeError(f"Failed to download {file_info['url']}") from exc
 
-    if unzip and not is_unzipped(state_file=state_file):
-        # Find all *.zip files
-        zip_files = tuple(p for p in save_paths if p.suffix.lower() == ".zip")
-        if len(zip_files) != 1:
-            raise ValueError(f"Expected exactly one zip file to unzip, found {len(zip_files)}: {zip_files}")
+    zip_files = tuple(p for p in save_paths if p.suffix.lower() == ".zip")
+    if len(zip_files) != 1:
+        raise ValueError(f"Expected exactly one zip file to unzip, found {len(zip_files)}: {zip_files}")
+    base_zip_path = zip_files[0]
+    state_file = state_file or _get_default_state_file(base_zip_path)
 
+    if not is_unzipped(state_file=state_file):
         # Find files that have the same base name with .z** extensions
-        base_name = zip_files[0].stem
-        base_zip_path = zip_files[0]
+        base_name = base_zip_path.stem
         part_file_paths = tuple(
             p
             for p in save_paths
@@ -118,7 +136,7 @@ def download_files(
                 )
 
 
-def _download_file_single(
+def download_single_file(
     *,
     url: str,
     save_dir: Path,

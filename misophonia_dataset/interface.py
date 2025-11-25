@@ -10,6 +10,9 @@ DEFAULT_DIR = NotImplementedError  # TODO: Refactor!
 MappingT: TypeAlias = dict[str, dict[Literal["foams_mapping"], str]]
 """The structure of a mapping from dataset-specific classes to FOAMS classes."""
 
+LicenceT: TypeAlias = dict[Literal["license_url", "attribution_name", "attribution_url"], str]
+"""The structure of a license information dictionary."""
+
 
 def get_default_data_dir(*, dataset_name: str | None = None, base_dir: Path | None = None) -> Path:
     base_dir = base_dir or Path(__file__).parent.parent / "data"
@@ -35,17 +38,15 @@ class SourceMetaData(pa.DataFrameModel):
 
     label_type: pat.Series[str] = pa.Field(isin={"control", "trigger", "background"})
     """Type of sound."""
-    labels: pat.Series[str] = pa.Field()
+    labels: pat.Series[object] = pa.Field()
     """
     Label according to the FOAMS taxonomy (if sound_type = 'trigger') and, otherwise, the AudioSet (FSD50K) taxonomy.
     
-    There can be one more more labels. But all labels must be of the same sound_type. Any data point that has labels from multiple sound_types should be excluded.
+    There can be one more more labels (str or list of str). But all labels must be of the same sound_type. Any data point that has labels from multiple sound_types should be excluded.
     """
 
     licensing: pat.Series[object] = pa.Field(nullable=True)
-    """Licensing information. Can be an object or list of objects, e.g.: 
-        [{license_url: str, attribution_name: str, attribution_url: str}, ...]
-    """
+    """Licensing information. A collection of dictionaries (see LicenceT above)."""
 
 
 class SourceData(ABC):

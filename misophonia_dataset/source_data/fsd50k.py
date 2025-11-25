@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..interface import MappingT, SourceData, SourceMetaData, get_default_data_dir
-from ._downloading import download_files, is_unzipped
+from ._downloading import download_and_unzip, is_unzipped
 
 
 class Fsd50kDataset(SourceData):
@@ -102,11 +102,10 @@ class Fsd50kDataset(SourceData):
         }
 
         for spec_name, spec in data_specs.items():
-            download_files(
+            download_and_unzip(
                 files=spec,
                 save_dir=self._base_save_dir,
                 rename_extracted_dir=spec_name,
-                unzip=True,
                 delete_zip=True,
             )
 

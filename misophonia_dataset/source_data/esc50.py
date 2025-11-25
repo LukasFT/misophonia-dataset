@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..interface import MappingT, SourceData, SourceMetaData, get_default_data_dir
-from ._downloading import download_files, is_unzipped
+from ..interface import LicenceT, MappingT, SourceData, SourceMetaData, get_default_data_dir
+from ._downloading import download_and_unzip, is_unzipped
 
 
 class Esc50Dataset(SourceData):
@@ -34,7 +34,7 @@ class Esc50Dataset(SourceData):
             save_dir (str): directory to save the dataset
 
         """
-        download_files(
+        download_and_unzip(
             files=(
                 {
                     # Latest commit per November 24, 2025
@@ -44,7 +44,6 @@ class Esc50Dataset(SourceData):
                 },
             ),
             save_dir=self._base_save_dir,
-            unzip=True,
             delete_zip=True,
             rename_extracted_dir=self._base_unzipped_dir.name,
         )
@@ -70,7 +69,7 @@ class Esc50Dataset(SourceData):
 
         meta = meta.rename(columns={"esc50_src_file": "freesound_id"})
 
-        def _get_dataset_license(*, is_esc10: bool) -> tuple[dict, ...]:
+        def _get_license(*, is_esc10: bool) -> tuple[LicenceT, ...]:
             return (
                 # Source sound license:
                 {  # TODO: Find license for the sounds themselves
@@ -90,7 +89,7 @@ class Esc50Dataset(SourceData):
                 },
             )
 
-        meta["licensing"] = meta["esc50_esc10"].apply(lambda x: _get_dataset_license(is_esc10=x))
+        meta["licensing"] = meta["esc50_esc10"].apply(lambda x: _get_license(is_esc10=x))
 
         return SourceMetaData.validate(meta)
 
