@@ -2,8 +2,10 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import time
 import zipfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable, Literal
 from urllib.parse import urlparse
@@ -43,19 +45,29 @@ def download_files(
 
     # Download all files
     save_paths = []
-    for file_info in files:
-        save_paths.append(
-            _download_file_single(
+    with ProcessPoolExecutor() as executor:
+        futures = {
+            executor.submit(
+                _download_file_single,
                 url=file_info["url"],
                 save_dir=save_dir,
                 md5=file_info.get("md5"),
                 filename=file_info.get("filename"),
                 state_file=state_file,
                 max_retries=max_retries,
-            )
-        )
+                tqdm_position=i,
+            ): file_info
+            for i, file_info in enumerate(files)
+        }
 
-    if unzip:
+        for future in as_completed(futures):
+            try:
+                save_paths.append(future.result())
+            except Exception as exc:
+                file_info = futures[future]
+                raise RuntimeError(f"Failed to download {file_info['url']}") from exc
+
+    if unzip and not is_unzipped(save_paths[0], state_file=state_file):
         # Find all *.zip files
         zip_files = tuple(p for p in save_paths if p.suffix.lower() == ".zip")
         if len(zip_files) != 1:
@@ -70,14 +82,39 @@ def download_files(
             if p.name.startswith(base_name) and p != base_zip_path and p.suffix.lower().startswith(".z")
         )
 
+        extract_to = save_dir / f"{base_name}_extracted"
         _unzip_file(
             base_zip_path,
             part_file_paths=part_file_paths,
-            extract_to=save_dir,
+            extract_to=extract_to,
             state_file=state_file,
             delete_zip=delete_zip,
-            rename_extracted_dir=rename_extracted_dir,
         )
+
+        # Move to
+        # delete any __MACOSX directories if present
+        macosx_dir = extract_to / "__MACOSX"
+        if macosx_dir.exists() and macosx_dir.is_dir():
+            shutil.rmtree(macosx_dir)
+
+        if rename_extracted_dir:
+            # Check if there is exactly one top-level directory
+            extracted_items = list(extract_to.iterdir())
+            top_level_dirs = [p for p in extracted_items if p.is_dir()]
+            if len(top_level_dirs) == 1:
+                original_path = top_level_dirs[0]
+                new_path = extract_to.parent / rename_extracted_dir
+
+                if new_path.exists():
+                    raise RuntimeError(f"Cannot rename {original_path} to {new_path} because it already exists.")
+                original_path.rename(new_path)
+                extract_to.rmdir()  # Remove now-empty extracted_to directory
+                eliot.log_message(f"Renamed {original_path.name} to {new_path.name}", level="debug")
+            else:
+                eliot.log_message(
+                    f"Skipping rename: Extracted files do not have a single top-level directory (found {[p.name for p in top_level_dirs]})",
+                    level="warning",
+                )
 
 
 def _download_file_single(
@@ -88,6 +125,7 @@ def _download_file_single(
     filename: str | None = None,
     state_file: Path | None = None,
     max_retries: int = 5,
+    tqdm_position: int = 0,
 ) -> Path:
     # Remove query params
     filename = os.path.basename(urlparse(url).path) if filename is None else filename
@@ -100,7 +138,7 @@ def _download_file_single(
         for attempt in range(1, max_retries + 1):
             _set_file_state(state_file, downloaded=False)
             try:
-                _download_single_inner(url, save_path)
+                _download_single_inner(url, save_path, tqdm_position=tqdm_position)
                 break  # Successful download, exit retry loop
             except Exception as e:
                 if attempt == max_retries:
@@ -122,7 +160,7 @@ def _download_file_single(
     return save_path
 
 
-def _download_single_inner(url: str, save_path: Path) -> None:
+def _download_single_inner(url: str, save_path: Path, tqdm_position: int = 0) -> None:
     # Check for partial file
     expected_size = _get_expected_size(url)
     headers = {}
@@ -162,6 +200,7 @@ def _download_single_inner(url: str, save_path: Path) -> None:
             unit_scale=True,
             desc=f"Downloading {url}",
             ascii=True,
+            position=tqdm_position,
         ) as bar,
     ):
         for chunk in response.iter_content(chunk_size=chunk_size):
@@ -191,7 +230,6 @@ def _unzip_file(
     extract_to: Path,
     state_file: Path | None = None,
     delete_zip: bool = False,
-    rename_extracted_dir: str | None = None,
 ) -> None:
     state_file = state_file or _get_default_state_file(base_zip_path)
 
@@ -204,9 +242,14 @@ def _unzip_file(
 
     if len(part_file_paths) == 0:
         eliot.log_message(f"Unzipping file {base_zip_path} to {extract_to}", level="debug")
-        _unzip_simple(zip_path=base_zip_path, extract_to=extract_to, rename_extracted_dir=rename_extracted_dir)
+        _unzip_simple(zip_path=base_zip_path, extract_to=extract_to)
     else:
         eliot.log_message(f"Unzipping {base_zip_path} with parts {part_file_paths} to {extract_to}", level="debug")
+        _unzip_with_parts(
+            base_zip_path=base_zip_path,
+            part_file_paths=part_file_paths,
+            extract_to=extract_to,
+        )
 
     if delete_zip:
         base_zip_path.unlink()  # Delete zip file after unzipping
@@ -220,32 +263,9 @@ def _unzip_simple(
     *,
     zip_path: Path,
     extract_to: Path,
-    rename_extracted_dir: str | None = None,
 ) -> None:
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
         zip_ref.extractall(extract_to)
-
-        if rename_extracted_dir:
-            # Check if there is exactly one top-level directory
-            top_level_items = {Path(p).parts[0] for p in zip_ref.namelist()}
-            # Filter out __MACOSX if present, as it's a common artifact
-            top_level_items.discard("__MACOSX")
-
-            if len(top_level_items) == 1:
-                original_name = list(top_level_items)[0]
-                original_path = extract_to / original_name
-                new_path = extract_to / rename_extracted_dir
-
-                if original_path.is_dir():
-                    if new_path.exists():
-                        shutil.rmtree(new_path)
-                    original_path.rename(new_path)
-                    eliot.log_message(f"Renamed {original_path.name} to {new_path.name}", level="debug")
-            else:
-                eliot.log_message(
-                    f"Skipping rename: Zip file does not have a single top-level directory (found {top_level_items})",
-                    level="warning",
-                )
 
 
 def _unzip_with_parts(
@@ -261,13 +281,15 @@ def _unzip_with_parts(
     if shutil.which("7z") is None:
         raise RuntimeError("7zip (7z) is not installed or not found in PATH. Cannot unzip multi-part zip files.")
 
-    # Build command
+    # Assert all parts are only differing by extension (z**)
+    assert all(part.parent == base_zip_path.parent for part in part_file_paths), (
+        "All parts must be in the same directory."
+    )
+    assert all(part.stem == base_zip_path.stem for part in part_file_paths), "All parts must have the same base name."
+    assert all(part.suffix.lower().startswith(".z") for part in part_file_paths), "All parts must have .z** extensions."
     command = ["7z", "x", str(base_zip_path), f"-o{str(extract_to)}", "-y"]
-    for part_path in part_file_paths:
-        command.append(str(part_path))
-    # Execute command
-    import subprocess
 
+    print(f"Running command: {' '.join(command)}")
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"7zip failed to unzip files: {result.stderr}")
