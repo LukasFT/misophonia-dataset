@@ -42,6 +42,7 @@ def pad_audio_files(fg_audio: np.ndarray, bg_audio: np.ndarray) -> tuple[np.ndar
 
 def binaural_mix(fg: Path, bg: Path) -> np.ndarray:
     # Deterministic Params
+    # TODO: Should these be determinstic?
     subject_id = "D2"
     ir_type = "BRIR"
 
