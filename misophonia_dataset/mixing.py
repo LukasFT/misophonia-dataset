@@ -7,7 +7,7 @@ import numpy as np
 from ._binamix import setup_binamix
 
 setup_binamix()
-from binamix.sadie_utilities import TrackObject, mix_tracks_binaural
+from binamix.sadie_utilities import TrackObject, mix_tracks_binaural  # type: ignore
 
 
 def pad_audio_files(fg_audio: np.ndarray, bg_audio: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

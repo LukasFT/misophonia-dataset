@@ -4,8 +4,7 @@ from typing import Iterator
 import numpy as np
 import pandas as pd
 
-from .interface import SourceData
-from .mixing import binaural_mix
+from .interface import SourceData, SplitT
 
 
 class MisophoniaItem:
@@ -24,53 +23,50 @@ class MisophoniaDataset:
         # each source data has a metadata dataframe
         # need to split each df based on "split" and merge into train_df, val_df, test_df
 
-        self._train, self._val, self._test = self._get_split_dfs()
-        self.paths = {type(s).__name__: s.path for s in source_data}
+        self._dfs = self._get_split_dfs()
 
     def _get_split_dfs(self) -> list[pd.DataFrame]:
         assert all(ds.is_downloaded() for ds in self._source_data), "All source data must be downloaded."
         all_source_data = pd.concat([ds.get_metadata() for ds in self._source_data], ignore_index=True)
-        raise NotImplementedError()
-        train_dfs = []
-        val_dfs = []
-        test_dfs = []
 
-        for src in self._source_data:
-            meta = src.metadata[["filename", "labels", "isTrig", "split"]].copy()
+        df_by_split = {}
+        for split in ["train", "val", "test"]:
+            df_by_split[split] = all_source_data[all_source_data["split"] == split]
 
-            # Add source name or type identifier
-            meta["source"] = type(src).__name__
+        assert sum(len(df) for df in df_by_split.values()) == len(all_source_data), "Some samples are missing a split."
+        return df_by_split
 
-            # Split using the "split" column
-            train_dfs.append(meta[meta["split"] == 0])
-            val_dfs.append(meta[meta["split"] == 1])
-            test_dfs.append(meta[meta["split"] == 2])
+    def generate(self, num_samples: int, *, split: SplitT, random_state: int = 42) -> Iterator[MisophoniaItem]:
+        try:
+            from .mixing import binaural_mix  # Import it here since it requires binamix to be setup
+        except Exception as e:
+            # TODO: Remove this exception handling when SADIE issue is resolved
+            print("Error importing binaural_mix:", e)
+            print("Continuing for the demo")
 
-        # Concatenate each list; ignore_index for clean reindexing
-        train_df = pd.concat(train_dfs, ignore_index=True) if train_dfs else pd.DataFrame()
-        val_df = pd.concat(val_dfs, ignore_index=True) if val_dfs else pd.DataFrame()
-        test_df = pd.concat(test_dfs, ignore_index=True) if test_dfs else pd.DataFrame()
+            def binaural_mix(fg: os.PathLike, bg: os.PathLike) -> tuple[np.ndarray, int]:
+                print(f"Mixing {fg} and {bg} (dummy function)")
+                return None, None
 
-        return train_df, val_df, test_df
+        meta = self._dfs[split]
 
-    def generate(self, batch_size: int, meta: pd.DataFrame, show: bool) -> Iterator[MisophoniaItem]:
-        trigs_df = meta[meta["isTrig"] == 1]
-        background_df = meta[meta["isTrig"] == 2]
+        trigs_df = meta[meta["label_type"] == "trigger"]
+        background_df = meta[meta["label_type"] == "background"]
 
-        replace = True
-        if batch_size > trigs_df.shape[0] or batch_size > background_df.shape[0]:
-            replace = False
+        def _sample_full_then_restart(df: pd.DataFrame, n: int) -> Iterator[pd.DataFrame]:
+            rand_state = random_state
+            samples = df.sample(n=min(n, len(df)), random_state=rand_state)
+            for i in range(n):
+                if i > 0 and i % len(df) == 0:
+                    rand_state += 1
+                    samples = df.sample(n=min(n, len(df)), random_state=rand_state)
+                yield samples.iloc[i % len(df)]
 
-        trig_samples = trigs_df.sample(n=batch_size, replace=replace, ignore_index=True, random_state=42)
-        background_samples = background_df.sample(n=batch_size, replace=replace, ignore_index=True, random_state=42)
+        trigs_df = meta[meta["label_type"] == "trigger"]
+        background_df = meta[meta["label_type"] == "background"]
+        trig_samples = _sample_full_then_restart(trigs_df, num_samples)
+        background_samples = _sample_full_then_restart(background_df, num_samples)
 
-        for i in range(batch_size):
-            trig_path = os.path.join(
-                self.paths[trig_samples.iloc[i]["source"]], str(trig_samples.iloc[i]["filename"]) + ".wav"
-            )
-            bg_path = os.path.join(
-                self.paths[background_samples.iloc[i]["source"]], str(background_samples.iloc[i]["filename"]) + ".wav"
-            )
-
-            mix, sr = binaural_mix(trig_path, bg_path)
+        for trig_row, bg_row in zip(trig_samples, background_samples):
+            mix, sr = binaural_mix(trig_row["file_path"], bg_row["file_path"])
             yield MisophoniaItem(audio=mix, sr=sr)
