@@ -15,6 +15,7 @@ class FoamsDataset(SourceData):
 
     def __init__(self, save_dir: Path | None = None) -> None:
         self._base_save_dir = save_dir if save_dir is not None else get_default_data_dir(dataset_name="FOAMS")
+        self._meta = None
 
     def is_downloaded(self) -> bool:
         return is_unzipped(file_path=self._base_save_dir / "FOAMS_processed_audio.zip") and is_downloaded(
@@ -48,6 +49,9 @@ class FoamsDataset(SourceData):
         )
 
     def get_metadata(self) -> SourceMetaData:
+        if self._meta is not None:
+            return self._meta
+
         meta = self._get_base_metadata()
 
         meta["source_dataset"] = "FOAMS"
@@ -73,7 +77,9 @@ class FoamsDataset(SourceData):
 
         meta["validated_by"] = is_validated_ids(meta["freesound_id"])
         meta["split"] = train_valid_test_split(meta["freesound_id"], validated_by=meta["validated_by"])
-        return SourceMetaData.validate(meta)
+
+        self._meta = SourceMetaData.validate(meta)
+        return self._meta
 
     def get_all_sound_ids(self) -> pd.Series:
         """
