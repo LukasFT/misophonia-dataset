@@ -15,7 +15,7 @@
       "name": "Debug: CLI",
       "type": "debugpy",
       "request": "launch",
-      "program": "cli.py",
+      "module": "misophonia_dataset.main",
       "console": "integratedTerminal",
       // See https://stackoverflow.com/a/78912781
       "args": "${command:pickArgs}"

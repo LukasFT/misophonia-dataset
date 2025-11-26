@@ -1,0 +1,72 @@
+{
+  "Trigger": {
+    "Chewing_and_mastication": {
+      "foams_mapping": "chewing_gum"
+    },
+    "Throat_clearing": {
+      "foams_mapping": "clearing_throat"
+    },
+    "Cough": {
+      "foams_mapping": "clearing_throat"
+    },
+    "Breathing": {
+      "foams_mapping": "human_breathing"
+    },
+    "Respiratory_sounds": {
+      "foams_mapping": "human_breathing"
+    },
+    "Pant": {
+      "foams_mapping": "human_breathing"
+    },
+    "Chopping_(food)": {
+      "foams_mapping": "knife_cutting"
+    },
+    "Scissors": {
+      "foams_mapping": "knife_cutting"
+    },
+    "Crumpling_and_crinkling": {
+      "foams_mapping": "plastic_crumpling"
+    },
+    "Crushing": {
+      "foams_mapping": "plastic_crumpling"
+    },
+    "Digestive": {
+      "foams_mapping": "swallowing"
+    },
+    "Gurgling": {
+      "foams_mapping": "swallowing"
+    },
+    "Computer_keyboard": {
+      "foams_mapping": "typing"
+    },
+    "Typing": {
+      "foams_mapping": "typing"
+    },
+    "Typewriter": {
+      "foams_mapping": "typing"
+    },
+    "Drip": {
+      "foams_mapping": "water_drops"
+    },
+    "Raindrop": {
+      "foams_mapping": "water_drops"
+    },
+    "Trickle_and_dribble": {
+      "foams_mapping": "water_drops"
+    }
+  },
+  "Control": {
+    "Harp": {
+      "foams_mapping": "harp"
+    },
+    "Piano": {
+      "foams_mapping": "piano"
+    },
+    "Hair_dryer": {
+      "foams_mapping": "hair_dryer"
+    },
+    "Vacuum_cleaner": {
+      "foams_mapping": "vacuum"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+# misophonia.intro.im {
+# 	encode zstd gzip
+# 	reverse_proxy experiment-jatos:9000
+# }
+
+localhost, "127.0.0.1" {
+	encode zstd gzip
+
+  # Efficiently serve static files from /srv/static
+  handle_path /static/* {
+    root * /srv/static
+    file_server
+  }
+
+  # All other requests are proxied to JATOS
+	reverse_proxy experiment-jatos:9000
+}

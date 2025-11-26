@@ -34,9 +34,9 @@ services:
       - experiment
     volumes:
       - ./data/experiment-jatos:/opt/jatos_data # General JATOS data
-      - ./experiment/assets:/opt/jatos_data/study_assets_root/misophonia-dataset:ro # Study assets
+      - ./experiment/web/assets:/opt/jatos_data/study_assets_root/misophonia-dataset:ro # Study assets
       - ./data/experiment-jatos-logs:/opt/jatos/logs
-      - ./experiment/jatos.conf:/opt/jatos/conf/jatos.conf:ro
+      - ./experiment/web/jatos.conf:/opt/jatos/conf/jatos.conf:ro
     expose:
       - "9000"
     environment:
@@ -55,8 +55,8 @@ services:
       - ACME_AGREE=true
       - EMAIL=lukt@itu.dk
     volumes:
-      - ./experiment/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./experiment/assets:/srv/static:ro
+      - ./experiment/web/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./experiment/web/assets:/srv/static:ro
       - ./data/experiment-caddy-data:/data
       - ./data/experiment-caddy-config:/config
     depends_on:
@@ -70,4 +70,3 @@ services:
     volumes:
       - ./r_analysis:/app
       - ./data:/data
-
