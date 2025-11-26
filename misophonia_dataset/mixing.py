@@ -40,7 +40,19 @@ def pad_audio_files(fg_audio: np.ndarray, bg_audio: np.ndarray) -> tuple[np.ndar
         return long_, padded
 
 
-def binaural_mix(fg: Path, bg: Path) -> np.ndarray:
+def binaural_mix(fg: Path, bg: Path) -> tuple[np.ndarray, int]:
+    """
+    Max a binaural mix of a foreground (trigger) and background sound.
+
+    Params:
+        fg (Path): path to foreground audio file
+        bg (Path): path to background audio file
+
+    Returns:
+        mix (np.ndarray): binaural mixed audio
+        sr (int): sample rate of mixed audio
+
+    """
     # Deterministic Params
     # TODO: Should these be determinstic?
     subject_id = "D2"
