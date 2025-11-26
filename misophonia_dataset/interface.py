@@ -13,6 +13,9 @@ MappingT: TypeAlias = dict[str, dict[Literal["foams_mapping"], str]]
 LicenseT: TypeAlias = dict[Literal["license_url", "attribution_name", "attribution_url"], str]
 """The structure of a license information dictionary."""
 
+SplitT: TypeAlias = Literal["train", "val", "test"]
+"""The possible dataset splits."""
+
 
 def get_default_data_dir(*, dataset_name: str | None = None, base_dir: Path | None = None) -> Path:
     base_dir = base_dir or Path(__file__).parent.parent / "data"
@@ -28,7 +31,7 @@ class SourceMetaData(pa.DataFrameModel):
     """Name of the source dataset that returned this metadata."""
 
     split: pat.Series[str] = pa.Field(isin={"train", "val", "test"})
-    """Dataset split: train, val, or test."""
+    """Dataset split: train, val, or test. See SplitT."""
 
     file_path: pat.Series[str] = pa.Field()
     """Path to the audio file."""

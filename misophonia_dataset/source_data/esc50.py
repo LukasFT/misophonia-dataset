@@ -24,6 +24,7 @@ class Esc50Dataset(SourceData):
 
         self._base_save_dir = save_dir if save_dir is not None else get_default_data_dir(dataset_name="ESC50")
         self._base_unzipped_dir = self._base_save_dir / "ESC-50-master"
+        self._meta = None
 
     def is_downloaded(self) -> bool:
         return is_unzipped(file_path=self._base_save_dir / "ESC-50-master.zip")
@@ -54,6 +55,9 @@ class Esc50Dataset(SourceData):
         """
         Get standardized metadata for ESC50 dataset.
         """
+        if self._meta is not None:
+            return self._meta
+
         assert self.is_downloaded(), "Dataset is not downloaded yet."
         meta = pd.read_csv(self._base_unzipped_dir / "meta" / "esc50.csv")
         meta = meta.add_prefix("esc50_")  # to avoid confusion with other datasets
@@ -99,7 +103,8 @@ class Esc50Dataset(SourceData):
         meta["validated_by"] = is_validated_ids(meta["freesound_id"])
         meta["split"] = train_valid_test_split(meta["freesound_id"], validated_by=meta["validated_by"])
 
-        return SourceMetaData.validate(meta)
+        self._meta = SourceMetaData.validate(meta)
+        return self._meta
 
     def delete(self) -> None:
         self._base_save_dir.rmdir()
