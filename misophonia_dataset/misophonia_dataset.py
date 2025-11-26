@@ -1,25 +1,36 @@
+import os
 from typing import Iterator
 
+import numpy as np
 import pandas as pd
 
-from misophonia_dataset.interface import SourceData
+from .interface import SourceData
+from .mixing import binaural_mix
 
 
-class MisophoniaDataset:  # TODO: Refactor so we have a Dataset interface that this and SourceData inherit from
-    """
-    IMPORTANT: The metadata of all SourceData objects passed to MisophoniaData should have a "filename" column and "label"
-    column, "isTrig" column, and "split" column
-    """
+class MisophoniaItem:
+    #     component_sounds =
+    #     duration
+    #     amplitude
+    def __init__(self, audio: np.ndarray, sr: int) -> None:
+        self.audio = audio
+        self.sr = sr
+        # TODO: Add metadata that tracks labels of each component, and origin files
 
+
+class MisophoniaDataset:
     def __init__(self, source_data: list[SourceData]) -> None:
         self._source_data = source_data
         # each source data has a metadata dataframe
         # need to split each df based on "split" and merge into train_df, val_df, test_df
-        # each source data also has a path attribute. need to be able to retreive this
-        # when we wish to mix clips
-        self.train, self.val, self.test = self.split_and_merge()
 
-    def split_and_merge(self) -> list[pd.DataFrame]:
+        self._train, self._val, self._test = self._get_split_dfs()
+        self.paths = {type(s).__name__: s.path for s in source_data}
+
+    def _get_split_dfs(self) -> list[pd.DataFrame]:
+        assert all(ds.is_downloaded() for ds in self._source_data), "All source data must be downloaded."
+        all_source_data = pd.concat([ds.get_metadata() for ds in self._source_data], ignore_index=True)
+        raise NotImplementedError()
         train_dfs = []
         val_dfs = []
         test_dfs = []
@@ -42,15 +53,24 @@ class MisophoniaDataset:  # TODO: Refactor so we have a Dataset interface that t
 
         return train_df, val_df, test_df
 
-    class MisophoniaItem:
-        #     component_sounds =
-        #     duration
-        #     amplitude
-        def __init__(self) -> None:
-            raise NotImplementedError()
-            pass
+    def generate(self, batch_size: int, meta: pd.DataFrame, show: bool) -> Iterator[MisophoniaItem]:
+        trigs_df = meta[meta["isTrig"] == 1]
+        background_df = meta[meta["isTrig"] == 2]
 
-    def generate(self, batch_size: int, meta: pd.DataFrame, *, display: bool) -> Iterator[MisophoniaItem]:
-        raise NotImplementedError()
+        replace = True
+        if batch_size > trigs_df.shape[0] or batch_size > background_df.shape[0]:
+            replace = False
+
+        trig_samples = trigs_df.sample(n=batch_size, replace=replace, ignore_index=True, random_state=42)
+        background_samples = background_df.sample(n=batch_size, replace=replace, ignore_index=True, random_state=42)
+
         for i in range(batch_size):
-            continue
+            trig_path = os.path.join(
+                self.paths[trig_samples.iloc[i]["source"]], str(trig_samples.iloc[i]["filename"]) + ".wav"
+            )
+            bg_path = os.path.join(
+                self.paths[background_samples.iloc[i]["source"]], str(background_samples.iloc[i]["filename"]) + ".wav"
+            )
+
+            mix, sr = binaural_mix(trig_path, bg_path)
+            yield MisophoniaItem(audio=mix, sr=sr)
