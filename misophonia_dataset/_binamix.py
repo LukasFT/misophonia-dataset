@@ -57,7 +57,7 @@ def _download_sadie() -> None:
     data_specs = {
         "D1": (  # TODO: These files are not enough to make Binamix work ...
             {
-                "url": "https://zenodo.org/records/12092466/files/D1.zip?download=1",
+                "url": "https://zenodo.org/records/10886409/files/D1.zip?download=1",
                 "md5": "468f0fce29c2f5880627c571b73e64c3",
             },
         ),
