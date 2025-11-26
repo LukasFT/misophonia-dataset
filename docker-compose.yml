@@ -64,9 +64,9 @@ services:
 
 
   r-analysis:
-    build: ./r_analysis
+    build: ./experiment/r_analysis
     profiles:
       - r-analysis
     volumes:
-      - ./r_analysis:/app
+      - ./experiment/r_analysis:/app
       - ./data:/data
