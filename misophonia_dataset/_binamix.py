@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from pathlib import Path
+import os
 
 from .source_data._downloading import download_and_unzip
 
@@ -71,7 +72,7 @@ def _download_sadie() -> None:
         print(f"Downloading SADIE data for subject {subject_id}...")
         download_and_unzip(
             specs,
-            save_dir=binamix_repo / "sadie",
+            save_dir=os.path.join(binamix_repo, "sadie", "Database-Master_V1-4"),
             rename_extracted_dir=subject_id,
         )
 
