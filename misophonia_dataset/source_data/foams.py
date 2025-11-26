@@ -5,7 +5,7 @@ import pandas as pd
 from ..interface import SourceData, SourceMetaData, get_default_data_dir
 from ._downloading import download_and_unzip, download_single_file, is_downloaded, is_unzipped
 from ._freesound_license import generate_freesound_licenses
-from ._splitting import train_valid_test_split
+from ._splitting import is_validated_ids, train_valid_test_split
 
 
 class FoamsDataset(SourceData):
@@ -71,8 +71,8 @@ class FoamsDataset(SourceData):
             ),
         )
 
-        meta["split"] = train_valid_test_split(meta["freesound_id"], foams=self)
-
+        meta["validated_by"] = is_validated_ids(meta["freesound_id"])
+        meta["split"] = train_valid_test_split(meta["freesound_id"], validated_by=meta["validated_by"])
         return SourceMetaData.validate(meta)
 
     def get_all_sound_ids(self) -> pd.Series:

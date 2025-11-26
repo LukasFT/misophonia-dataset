@@ -44,6 +44,9 @@ class SourceMetaData(pa.DataFrameModel):
     There can be one more more labels (str or list of str). But all labels must be of the same sound_type. Any data point that has labels from multiple sound_types should be excluded.
     """
 
+    validated_by: pat.Series[object] = pa.Field(nullable=True)
+    """List of names for studies (e.g., FOAMS) that have validated this data point. If not any, None. Only applicable for trigger sounds."""
+
     licensing: pat.Series[object] = pa.Field(nullable=True)
     """Licensing information. A collection of dictionaries (see LicenceT above)."""
 
