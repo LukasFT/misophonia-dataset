@@ -5,6 +5,7 @@ import pandas as pd
 from ..interface import SourceData, SourceMetaData, get_default_data_dir
 from ._downloading import download_and_unzip, download_single_file, is_downloaded, is_unzipped
 from ._freesound_license import generate_freesound_licenses
+from ._splitting import train_valid_test_split
 
 
 class FoamsDataset(SourceData):
@@ -18,6 +19,13 @@ class FoamsDataset(SourceData):
     def is_downloaded(self) -> bool:
         return is_unzipped(file_path=self._base_save_dir / "FOAMS_processed_audio.zip") and is_downloaded(
             file_path=self._base_save_dir / "segmentation_info.csv"
+        )
+
+    def download_metadata(self) -> None:
+        download_single_file(
+            url="https://zenodo.org/records/8170225/files/segmentation_info.csv?download=1",
+            md5="0ac1de8a66ffb52be34722ad8cd5e514",
+            save_dir=self._base_save_dir,
         )
 
     def download_data(self) -> None:
@@ -38,24 +46,13 @@ class FoamsDataset(SourceData):
             delete_zip=True,
             rename_extracted_dir="processed_audio",
         )
-        download_single_file(
-            url="https://zenodo.org/records/8170225/files/segmentation_info.csv?download=1",
-            md5="0ac1de8a66ffb52be34722ad8cd5e514",
-            save_dir=self._base_save_dir,
-        )
 
     def get_metadata(self) -> SourceMetaData:
-        meta = pd.read_csv(self._base_save_dir / "segmentation_info.csv")
-        meta = meta.add_prefix("foams_")  # to avoid confusion with other datasets
+        meta = self._get_base_metadata()
 
         meta["source_dataset"] = "FOAMS"
 
-        meta = meta.rename(
-            columns={
-                "foams_id": "freesound_id",  # FOAMS IDs correspond to FreeSound IDs
-                "foams_label": "labels",  # FOAMS labels are already aligned to FOAMS taxonomy
-            }
-        )
+        meta = meta.rename(columns={"foams_label": "labels"})  # FOAMS labels are already aligned to FOAMS taxonomy
 
         meta["labels"] = meta["labels"].apply(lambda x: [x])  # Make singular lists to align with other datasets
         meta["label_type"] = "trigger"  # All FOAMS sounds are triggers
@@ -74,7 +71,22 @@ class FoamsDataset(SourceData):
             ),
         )
 
+        meta["split"] = train_valid_test_split(meta["freesound_id"], foams=self)
+
         return SourceMetaData.validate(meta)
+
+    def get_all_sound_ids(self) -> pd.Series:
+        """
+        Returns a Series of FOAMS sound FreeSound IDs.
+        """
+        meta = self._get_base_metadata()
+        return meta["freesound_id"]
+
+    def _get_base_metadata(self) -> pd.DataFrame:
+        meta = pd.read_csv(self._base_save_dir / "segmentation_info.csv")
+        meta = meta.add_prefix("foams_")  # To avoid column name clashes
+        meta = meta.rename(columns={"foams_id": "freesound_id"})  # FOAMS IDs correspond to FreeSound IDs
+        return meta
 
     def delete(self) -> None:
         self._base_save_dir.rmdir()

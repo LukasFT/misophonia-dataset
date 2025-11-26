@@ -6,6 +6,7 @@ import pandas as pd
 from ..interface import MappingT, SourceData, SourceMetaData, get_default_data_dir
 from ._downloading import download_and_unzip, is_unzipped
 from ._freesound_license import generate_freesound_licenses
+from ._splitting import train_valid_test_split
 
 
 class Fsd50kDataset(SourceData):
@@ -46,6 +47,20 @@ class Fsd50kDataset(SourceData):
             for part in ("FSD50K.metadata.zip", "FSD50K.dev_audio.zip", "FSD50K.eval_audio.zip")
         )
 
+    def download_metadata(self) -> None:
+        """Downloads and extracts only the metadata."""
+        download_and_unzip(
+            files=(
+                {
+                    "url": "https://zenodo.org/records/4060432/files/FSD50K.metadata.zip?download=1",
+                    "md5": "b9ea0c829a411c1d42adb9da539ed237",
+                },
+            ),
+            save_dir=self._base_save_dir,
+            rename_extracted_dir="metadata",
+            delete_zip=True,
+        )
+
     def download_data(self) -> None:
         """
         Downloads, combines, and extracts FSD50K dataset from Zenodo using multiple threads, with resume support.
@@ -58,12 +73,6 @@ class Fsd50kDataset(SourceData):
         """
 
         data_specs = {
-            "metadata": (
-                {
-                    "url": "https://zenodo.org/records/4060432/files/FSD50K.metadata.zip?download=1",
-                    "md5": "b9ea0c829a411c1d42adb9da539ed237",
-                },
-            ),
             "eval_audio": (
                 {
                     "url": "https://zenodo.org/records/4060432/files/FSD50K.eval_audio.zip?download=1",
@@ -102,6 +111,7 @@ class Fsd50kDataset(SourceData):
             ),
         }
 
+        self.download_metadata()
         for spec_name, spec in data_specs.items():
             download_and_unzip(
                 files=spec,
@@ -121,13 +131,7 @@ class Fsd50kDataset(SourceData):
         """
         assert self.is_downloaded(), "Dataset is not downloaded yet."
 
-        # Load and combine dev + eval metadata
-        meta_dev = pd.read_csv(self._base_save_dir / "metadata" / "collection" / "collection_dev.csv")
-        meta_dev["split"] = "dev"
-        meta_eval = pd.read_csv(self._base_save_dir / "metadata" / "collection" / "collection_eval.csv")
-        meta_eval["split"] = "eval"
-        meta = pd.concat([meta_dev, meta_eval], ignore_index=True)
-        meta = meta.add_prefix("fsd50k_")  # Prefix original columns to avoid conflicts
+        meta = self._get_base_metadata()
 
         meta["source_dataset"] = "FSD50K"
 
@@ -190,7 +194,28 @@ class Fsd50kDataset(SourceData):
             ),
         )
 
+        meta["split"] = train_valid_test_split(meta["freesound_id"], fsd50k=self)
+
         return SourceMetaData.validate(meta)
+
+    def get_original_splits(self) -> pd.DataFrame:
+        """
+        Returns the original FSD50K splits as a DataFrame.
+
+        This is used by other datasets to respect this splitting.
+        """
+        return self._get_base_metadata()[["fsd50k_fname", "fsd50k_split"]].rename(
+            columns={"fsd50k_fname": "freesound_id"}
+        )
+
+    def _get_base_metadata(self) -> pd.DataFrame:
+        meta_dev = pd.read_csv(self._base_save_dir / "metadata" / "collection" / "collection_dev.csv")
+        meta_dev["split"] = "dev"
+        meta_eval = pd.read_csv(self._base_save_dir / "metadata" / "collection" / "collection_eval.csv")
+        meta_eval["split"] = "eval"
+        meta = pd.concat([meta_dev, meta_eval], ignore_index=True)
+        meta = meta.add_prefix("fsd50k_")  # Prefix original columns to avoid conflicts
+        return meta
 
     def delete(self) -> None:
         self._base_save_dir.rmdir()

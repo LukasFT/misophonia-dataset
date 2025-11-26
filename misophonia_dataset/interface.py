@@ -24,12 +24,11 @@ def get_default_data_dir(*, dataset_name: str | None = None, base_dir: Path | No
 class SourceMetaData(pa.DataFrameModel):
     """The schema for standardized metadata for source datasets."""
 
-    # TODO: Maybe we should do this outside the source datasets, as it all needs to be aligned.
-    # split: pat.Series[str] = pa.Field(isin={"train", "val", "test"})
-    # """Dataset split: train, val, or test."""
-
     source_dataset: pat.Series[str] = pa.Field()
     """Name of the source dataset that returned this metadata."""
+
+    split: pat.Series[str] = pa.Field(isin={"train", "val", "test"})
+    """Dataset split: train, val, or test."""
 
     file_path: pat.Series[str] = pa.Field()
     """Path to the audio file."""
