@@ -1,12 +1,12 @@
 import random
-import sys
 from pathlib import Path
 
 import librosa
 import numpy as np
 
-sys.path.append(str(Path(__file__).parent.parent / "Binamix"))
+from ._binamix import setup_binamix
 
+setup_binamix()
 from binamix.sadie_utilities import TrackObject, mix_tracks_binaural
 
 
