@@ -162,6 +162,7 @@ def generate_miso_dataset(
         i += 1
 
     df = pd.DataFrame(rows)
-    df.to_json("misophonia_dataset.json", orient="records", indent=2)  # TODO: json or csv?
+    metadata_path = os.path.join(DEFAULT_MIX_DIR, f"{split}_metadata.json")
+    df.to_json(metadata_path orient="records", indent=2)  # TODO: json or csv?
 
     return df
