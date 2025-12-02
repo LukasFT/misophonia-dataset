@@ -6,6 +6,7 @@ import pandera.pandas as pa
 import pandera.typing as pat
 
 DEFAULT_DIR = NotImplementedError  # TODO: Refactor!
+DEFAULT_MIX_DIR = Path(__file__).parent.parent / "binaural_data"
 
 MappingT: TypeAlias = dict[str, dict[Literal["foams_mapping"], str]]
 """The structure of a mapping from dataset-specific classes to FOAMS classes."""
