@@ -22,8 +22,6 @@ class MisophoniaItem:
         bg_path: Path,
         fg_labels: List[str],
         bg_labels: List[str],
-        fg_lisence: LicenseT,
-        bg_lisence: LicenseT,
         fg_freesound_id: int | None,
         bg_freesound_id: int | None,
         split: SplitT,
@@ -37,8 +35,6 @@ class MisophoniaItem:
         self.fg_labels = fg_labels
         self.bg_labels = bg_labels
 
-        self.fg_lisence = fg_lisence
-        self.bg_lisence = bg_lisence
 
         self.fg_freesound_id = fg_freesound_id
         self.bg_freesound_id = bg_freesound_id
@@ -65,6 +61,21 @@ class MisophoniaDataset:
         assert sum(len(df) for df in df_by_split.values()) == len(all_source_data), "Some samples are missing a split."
         return df_by_split
 
+    def _save_licensing(row) -> None:
+        save_path = os.path.join(DEFAULT_MIX_DIR, "licensing.json")
+        fs_id = row['freesound_id']
+
+        if os.path.exiss(save_path):
+            with open(save_path, "r") as f:
+                data = json.load(f)
+        else:
+            data = {}
+
+        if fs_id not in data:
+            data[fs_id] = row['licensing'] 
+            with open(save_path, "w") as f:
+                json.dump(data, f, indent=2)
+
     def generate(
         self, num_samples: int, *, split: SplitT, random_state: int = 42, to_save: bool
     ) -> Iterator[MisophoniaItem]:
@@ -87,6 +98,10 @@ class MisophoniaDataset:
         background_samples = _sample_full_then_restart(background_df, num_samples)
 
         for trig_control_row, bg_row in zip(trig_control_samples, background_samples):
+            # save licensing rq
+            _save_licensing(trig_control_row)
+            _save_licensing(bg_row)
+
             params = MixingParams()
             is_trig = True if trig_control_row["label_type"] == "trigger" else False
             (
@@ -102,10 +117,8 @@ class MisophoniaDataset:
                 bg_path=bg_row["file_path"],
                 fg_labels=trig_control_row["labels"],
                 bg_labels=bg_row["labels"],
-                fg_lisence=trig_control_row["lisencing"],
-                bg_lisence=bg_row["lisencing"],
                 fg_freesound_id=trig_control_row["freesound_id"],
-                bg_freesound_id=bg_row["freesoun_id"],
+                bg_freesound_id=bg_row["freesound_id"],
                 split=SplitT,
             )
 
@@ -152,10 +165,8 @@ def generate_miso_dataset(
             "bg_path": str(item.bg_path),
             "fg_labels": item.fg_labels,
             "bg_labels": item.bg_labels,
-            "fg_lisence": item.fg_lisence,
-            "bg_lisence": item.bg_lisence,
-            "fg_freesound_id": item.fg_freesound_id,
-            "bg_freesound_id": item.bg_freesound_id,
+            "fg_freesound_id": item.fg_freesound_id, # key for license info in DEFAULT_MIX_DIR/licensing.json
+            "bg_freesound_id": item.bg_freesound_id, # key for license info in DEFAULT_MIX_DIR/licensing.json
             "split": item.split,
         }
         rows[i] = row
@@ -163,6 +174,6 @@ def generate_miso_dataset(
 
     df = pd.DataFrame(rows)
     metadata_path = os.path.join(DEFAULT_MIX_DIR, f"{split}_metadata.json")
-    df.to_json(metadata_path orient="records", indent=2)  # TODO: json or csv?
+    df.to_json(metadata_path orient="records", indent=4)  # TODO: json or csv?
 
     return df
