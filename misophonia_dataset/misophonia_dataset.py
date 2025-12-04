@@ -18,6 +18,7 @@ class MisophoniaItem:
         mix: np.ndarray,
         ground_truth: np.ndarray,
         mixing_params: MixingParams,
+        is_trig: bool,
         fg_path: Path,
         bg_path: Path,
         fg_labels: List[str],
@@ -29,6 +30,8 @@ class MisophoniaItem:
         self.mix = mix
         self.ground_truth = ground_truth
         self.mixing_params = mixing_params
+
+        self.is_trig = is_trig
 
         self.fg_path = fg_path
         self.bg_path = bg_path
@@ -102,6 +105,9 @@ class MisophoniaDataset:
             _save_licensing(trig_control_row)
             _save_licensing(bg_row)
 
+            # is trigger?
+            is_trig = 1 if trig_control_row["label_type"] == "trigger" else 0
+
             params = MixingParams()
             is_trig = True if trig_control_row["label_type"] == "trigger" else False
             (
@@ -113,6 +119,7 @@ class MisophoniaDataset:
                 mix=mix,
                 ground_truth=ground_truth,
                 mixing_params=params,
+                is_trig = is_trig,
                 fg_path=trig_control_row["file_path"],
                 bg_path=bg_row["file_path"],
                 fg_labels=trig_control_row["labels"],
@@ -152,15 +159,16 @@ def generate_miso_dataset(
     i = 0
     for item in dataset.generate(num_samples=n_samples, split=split):
         # Save audio
-        id = str(uuid.uuid4())
-        mix_path, ground_truth_path = save_file(item, split, id)
+        idx = str(uuid.uuid4())
+        mix_path, ground_truth_path = save_file(item, split, idx)
 
         # Save metadata
         row = {
-            "uuid": id,  # generate a new UUID for each row
+            "uuid": idx,  # generate a new UUID for each row
             "mix_path": mix_path,
             "ground_truth_path": ground_truth_path,
             "mixing_params": item.mixing_params,  # can store object or convert to dict
+            "is_trig": item.is_trig,
             "fg_path": str(item.fg_path),
             "bg_path": str(item.bg_path),
             "fg_labels": item.fg_labels,
