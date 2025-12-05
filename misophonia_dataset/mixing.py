@@ -23,7 +23,32 @@ class MixingParams(pydantic.BaseModel):
     fg_level: float = pydantic.Field(default_factory=lambda: round(random.uniform(0.4, 1.0), 1))
 
     # metadata
-    subject_id: str = pydantic.Field(default_factory=lambda: random.choice(["D1", "D2"]))
+    subject_id: str = pydantic.Field(
+        default_factory=lambda: random.choice(
+            [
+                "D1",
+                "D2",
+                "H3",
+                "H4",
+                "H5",
+                "H6",
+                "H7",
+                "H8",
+                "H9",
+                "H10",
+                "H11",
+                "H12",
+                "H13",
+                "H14",
+                "H15",
+                "H16",
+                "H17",
+                "H18",
+                "H19",
+                "H20",
+            ]
+        )
+    )
     speaker_layout: str = "none"
     sr: int = 44100
 
