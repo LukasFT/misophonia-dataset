@@ -1,5 +1,6 @@
 import random
 from pathlib import Path
+from typing import List
 
 import librosa
 import numpy as np
@@ -31,123 +32,132 @@ class MixingParams(pydantic.BaseModel):
     reverb_type: str = pydantic.Field(default_factory=lambda: random.choice(["1", "2", "3", "4"]))
 
 
-def pad_and_normalize_audio_files(fg_audio: np.ndarray, bg_audio: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    # Normalize volume using rms
-    rms_fg = np.sqrt(np.mean(fg_audio**2))
-    rms_bg = np.sqrt(np.mean(bg_audio**2))
+def pad_and_normalize_audio_files(
+    fg_audios: List[np.ndarray], bg_audios: List[np.ndarray]
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    def _get_rms(audio: np.ndarray) -> np.ndarray:
+        # Helper function to get root mean squares of the audio
+        return np.sqrt(np.mean(audio**2))
 
-    rms_target = rms_fg + rms_bg / 2
+    def _add_padding(audio: np.ndarray, target_length: int) -> np.ndarray:
+        # Helper function to pad an audio based on a target_length
+        needed = target_length - len(audio)
 
-    fg_audio *= rms_target / rms_fg
-    bg_audio *= rms_target / rms_bg
+        assert needed >= 0, "Unexpected target_length. Should not be smaller than audio durations."
+        if needed == 0:
+            return audio
 
-    len1 = len(fg_audio)
-    len2 = len(bg_audio)
+        start = np.random.randint(0, needed)  # noqa: NPY002
+        end = needed - start
 
-    # If already equal length, return unchanged
-    if len1 == len2:
-        return fg_audio, bg_audio
+        return np.concatenate([np.zeros(start, dtype=np.float32), audio, np.zeros(end, dtype=np.float32)])
 
-    if len1 < len2:
-        short, long_ = fg_audio, bg_audio
-        swap = True
-    else:
-        short, long_ = bg_audio, fg_audio
-        swap = False
+    # RMS
+    audios = fg_audios + bg_audios
+    rms_list = []
+    for audio in audios:
+        rms_list.append(_get_rms(audio))
+    rms_target = np.mean(rms_list)
+    fg_audios = [audio * rms_target / _get_rms(audio) for audio in fg_audios]
+    bg_audios = [audio * rms_target / _get_rms(audio) for audio in bg_audios]
 
-    # Pad random amount
-    needed = len(long_) - len(short)
-    start = np.random.randint(0, needed)  # noqa: NPY002
-    end = needed - start
+    # Pad
+    max_length = max([audio.shape[0] for audio in audios])
+    padded_fg_audios = [_add_padding(audio, max_length) for audio in fg_audios]
+    padded_bg_audios = [_add_padding(audio, max_length) for audio in bg_audios]
 
-    # Perform padding
-    padded = np.concatenate([np.zeros(start, dtype=short.dtype), short, np.zeros(end, dtype=short.dtype)])
-
-    # Return in original order
-    if swap:
-        return padded, long_
-    else:
-        return long_, padded
+    return padded_fg_audios, padded_bg_audios
 
 
 def validation_binaural_mix(
     trig: Path,
     control: Path,
     bg: Path,
-) -> tuple[tuple[np.ndarray, np.ndarray, int], tuple[np.ndarray, np.ndarray, int]]:
+) -> tuple[tuple[np.ndarray, np.ndarray, int], tuple[np.ndarray, None, int]]:
     """
     Mixing function specially designed for the validation experiment. Guarantees (trig, bg) (ctrl, bg) pairs with equivalent
     mixing parameters.
 
     Returns mixed (trig, bg), (ctrl, bg) and ground truths + sample rates for each mix.
     """
-    params = MixingParams()
+    fg_params = MixingParams()
+    bg_params = MixingParams()
+
+    # TODO: global_params
+    global_params = None
+    raise NotImplementedError("Need some global params")  # Should be good otherwise
 
     t_mix, t_gt, t_sr = binaural_mix(
-        trig,
-        bg,
-        params,
+        fg_list=[trig, fg_params],
+        bg_list=[bg, bg_params],
+        global_params=global_params,
         is_trig=True,
     )
 
     c_mix, c_gt, c_sr = binaural_mix(
-        trig,
-        bg,
-        params,
-        is_trig=False,
+        fg_list=[control, fg_params],
+        bg_list=[bg, bg_params],
+        global_params=global_params,
+        is_trig=True,
     )
 
-    raise NotImplementedError("Control variable is not even used here ...")
-
-    return (t_mix, t_gt, t_sr), (c_mix, c_gt, c_sr)
+    return (t_mix[0], t_gt[0], t_sr), (c_mix[0], c_gt, c_sr)
 
 
 def binaural_mix(
-    fg_path: Path,
-    bg_path: Path,
-    params: MixingParams,
+    fg_list: List[tuple[Path, MixingParams]],
+    bg_list: List[tuple[Path, MixingParams]],
+    global_params: MixingParams,
     *,
     is_trig: bool,
-) -> tuple[np.ndarray, np.ndarray | None, int]:
+) -> tuple[List[np.ndarray], List[np.ndarray | None], int]:
     """
     Max a binaural mix of a foreground (trigger) and background sound.
 
     Params:
-        fg (Path): path to foreground audio file
-        bg (Path): path to background audio file
+        fg_list: Paths + mixing params of foreground audio files
+        bg_list : Paths + mixing params of background audio files
 
     Returns:
-        mix (np.ndarray): binaural mixed audio
-        ground_truth (np.ndarray | None): binaural ground truth audio for foreground (trigger) sound, or None if not applicable
-        sr (int): sample rate of mixed audio
+        mix : list of binaural mixed audios
+        ground_truth : lust binaural ground truth audio for foreground (trigger) sound, or None if not applicable
+        sr : sample rate of mixed audio
     """
+    # Mixing Params
     ir_type = "BRIR"
+    fg_mixing_params = [fg[1] for fg in fg_list]
+    bg_mixing_params = [bg[1] for bg in bg_list]
 
-    # MIXING
-    fg_audio, _ = librosa.load(fg_path, sr=params.sr, mono=True)
-    bg_audio, _ = librosa.load(bg_path, sr=params.sr, mono=True)
+    fg_audios = [librosa.load(fg_path, sr=global_params.sr, mono=True) for fg_path in fg_list[:,]]
+    bg_audios = [librosa.load(bg_path, sr=global_params.sr, mono=True) for bg_path in bg_list[:,]]
+    fg_padded, bg_padded = pad_and_normalize_audio_files(fg_audios, bg_audios)
 
-    fg_padded, bg_padded = pad_and_normalize_audio_files(fg_audio, bg_audio)
+    fg_tracks = []
+    bg_tracks = []
+    for params, fg_audio in zip(fg_mixing_params, fg_padded):
+        fg_track = TrackObject(
+            name="trigger",
+            azimuth=params.azimuth,
+            elevation=params.elevation,
+            level=params.level,
+            reverb=0.0,
+            audio=fg_audio,
+        )
+        fg_tracks.append(fg_track)
+    for params, bg_audio in zip(bg_mixing_params, bg_padded):
+        bg_track = TrackObject(
+            name="background",
+            azimuth=params.bg_azimuth,
+            elevation=params.bg_elevation,
+            level=params.level,
+            reverb=0.0,
+            audio=bg_audio,
+        )
+        bg_tracks.append(bg_track)
 
-    fg_track = TrackObject(
-        name="trigger",
-        azimuth=params.fg_azimuth,
-        elevation=params.fg_elevation,
-        level=params.fg_level,
-        reverb=0.0,
-        audio=fg_padded,
-    )
-    bg_track = TrackObject(
-        name="background",
-        azimuth=params.bg_azimuth,
-        elevation=params.bg_elevation,
-        level=0.7,
-        reverb=0.0,
-        audio=bg_padded,
-    )
-
+    tracks_to_mix = fg_tracks + bg_tracks
     mix = mix_tracks_binaural(
-        [fg_track, bg_track],
+        tracks_to_mix,
         params.subject_id,
         params.sr,
         ir_type,
@@ -158,7 +168,7 @@ def binaural_mix(
 
     if is_trig:
         ground_truth = mix_tracks_binaural(
-            [fg_track],
+            fg_tracks,
             params.subject_id,
             params.sr,
             ir_type,
