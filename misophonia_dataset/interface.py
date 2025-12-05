@@ -4,18 +4,20 @@ from typing import Literal, TypeAlias
 
 import pandera.pandas as pa
 import pandera.typing as pat
-
-DEFAULT_DIR = NotImplementedError  # TODO: Refactor!
-DEFAULT_MIX_DIR = Path(__file__).parent.parent / "binaural_data"
+import pydantic
 
 MappingT: TypeAlias = dict[str, dict[Literal["foams_mapping"], str]]
 """The structure of a mapping from dataset-specific classes to FOAMS classes."""
 
-LicenseT: TypeAlias = dict[Literal["license_url", "attribution_name", "attribution_url"], str]
-"""The structure of a license information dictionary."""
 
 SplitT: TypeAlias = Literal["train", "val", "test"]
 """The possible dataset splits."""
+
+
+class License(pydantic.BaseModel):
+    license_url: str
+    attribution_name: str
+    attribution_url: str
 
 
 def get_default_data_dir(*, dataset_name: str | None = None, base_dir: Path | None = None) -> Path:

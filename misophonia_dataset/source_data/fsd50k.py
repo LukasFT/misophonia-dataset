@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..interface import MappingT, SourceData, SourceMetaData, get_default_data_dir
+from ..interface import License, MappingT, SourceData, SourceMetaData, get_default_data_dir
 from ._downloading import download_and_unzip, is_unzipped
 from ._freesound_license import generate_freesound_licenses
 from ._splitting import is_validated_ids, train_valid_test_split
@@ -190,11 +190,11 @@ class Fsd50kDataset(SourceData):
         meta["licensing"] = generate_freesound_licenses(
             meta["freesound_id"],
             base_licenses=(
-                {
-                    "license_url": "https://creativecommons.org/licenses/by/4.0/",
-                    "attribution_name": "E. Fonseca, X. Favory, J. Pons, F. Font & X. Serra",
-                    "attribution_url": "https://ieeexplore.ieee.org/document/9645159",
-                },
+                License(
+                    license_url="https://creativecommons.org/licenses/by/4.0/",
+                    attribution_name="E. Fonseca, X. Favory, J. Pons, F. Font & X. Serra",
+                    attribution_url="https://ieeexplore.ieee.org/document/9645159",
+                ),
             ),
         )
 

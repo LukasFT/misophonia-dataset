@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..interface import MappingT, SourceData, SourceMetaData, get_default_data_dir
+from ..interface import License, MappingT, SourceData, SourceMetaData, get_default_data_dir
 from ._downloading import download_and_unzip, is_unzipped
 from ._freesound_license import generate_freesound_licenses
 from ._splitting import is_validated_ids, train_valid_test_split
@@ -82,21 +82,21 @@ class Esc50Dataset(SourceData):
         # meta.loc[meta["esc50_esc10"] == True, "licensing"] = generate_freesound_licenses(
         #     meta.loc[meta["esc50_esc10"] == True, "freesound_id"],
         #     base_licenses=(
-        #         {
-        #             "license_url": "https://creativecommons.org/licenses/by/3.0/",
-        #             "attribution_name": "K. J. Piczak",
-        #             "attribution_url": "http://dx.doi.org/10.1145/2733373.2806390",
-        #         },
+        #        License(
+        #             license_url="https://creativecommons.org/licenses/by/3.0/",
+        #             attribution_name="K. J. Piczak",
+        #             attribution_url="http://dx.doi.org/10.1145/2733373.2806390",
+        #         ),
         #     ),
         # )
         meta["licensing"] = generate_freesound_licenses(
             meta["freesound_id"],
             base_licenses=(
-                {
-                    "license_url": "https://creativecommons.org/licenses/by-nc/3.0/",
-                    "attribution_name": "K. J. Piczak",
-                    "attribution_url": "http://dx.doi.org/10.1145/2733373.2806390",
-                },
+                License(
+                    license_url="https://creativecommons.org/licenses/by-nc/3.0/",
+                    attribution_name="K. J. Piczak",
+                    attribution_url="http://dx.doi.org/10.1145/2733373.2806390",
+                ),
             ),
         )
 

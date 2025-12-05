@@ -5,6 +5,7 @@ Usage:
 """
 
 # noqa: ANN201
+import shutil
 from pathlib import Path
 
 import eliot
@@ -15,7 +16,7 @@ from typing_extensions import Annotated
 from ._binamix import download_sadie
 from ._log import setup_print_logging
 from .interface import SourceData, get_default_data_dir
-from .misophonia_dataset import MisophoniaDataset
+from .misophonia_dataset import MisophoniaDataset, save_miso_dataset
 from .source_data.esc50 import Esc50Dataset
 from .source_data.foams import FoamsDataset
 from .source_data.fsd50k import Fsd50kDataset
@@ -27,24 +28,37 @@ app = typer.Typer(help="Misophonia Dataset CLI")
 
 @app.command()
 def generate(
+    target_base_dir: Annotated[Path, typer.Argument(help="Directory to save generated dataset")],
+    *,
+    replace: Annotated[bool, typer.Option("--replace", "-f", help="Replace existing directory if it exists")] = False,
     datasets: Annotated[
         list[str], typer.Option("--source-dataset", "-d", help="Name(s) of source datasets use.")
     ] = None,
-    base_save_dir: Annotated[Path, typer.Option("--datasets-dir", "-s", help="Directory to save datasets")] = None,
+    source_base_dir: Annotated[Path, typer.Option("--source-dir", help="Directory to save datasets")] = None,
     num_samples: Annotated[int, typer.Option("--num-samples", "-n", help="Number of samples to generate")] = 1,
     splits: Annotated[list[str], typer.Option("--splits", "-p", help="Dataset splits to include")] = None,
     seed: Annotated[int, typer.Option("--random-seed", "-r", help="Random seed for sampling")] = 42,
 ) -> None:
     datasets = _get_default_datasets() if datasets is None or len(datasets) == 0 else datasets
-    datasets = tuple(_get_dataset_from_name(name, base_dir=base_save_dir) for name in datasets)
+    datasets = tuple(_get_dataset_from_name(name, base_dir=source_base_dir) for name in datasets)
 
-    splits = ["train", "validation", "test"] if splits is None or len(splits) == 0 else splits
+    splits = ["train", "val", "test"] if splits is None or len(splits) == 0 else splits
 
     misophonia_dataset = MisophoniaDataset(source_data=datasets)
 
+    if target_base_dir.exists():
+        if replace:
+            eliot.log_message(f"Replacing existing directory at {target_base_dir}", level="warning")
+            shutil.rmtree(target_base_dir)
+        else:
+            raise FileExistsError(f"Target directory {target_base_dir} already exists.")
+
     for split in splits:
-        for sound in misophonia_dataset.generate(num_samples=num_samples, split=split, random_state=seed):
-            print(sound)
+        save_miso_dataset(
+            misophonia_dataset.generate(num_samples=num_samples, split=split, random_state=seed),
+            split=split,
+            base_dir=target_base_dir,
+        )
 
 
 @app.command()
