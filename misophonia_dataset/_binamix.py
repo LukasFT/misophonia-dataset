@@ -1,7 +1,6 @@
 import subprocess
 import sys
 from pathlib import Path
-import os
 
 from .source_data._downloading import download_and_unzip
 
@@ -39,7 +38,7 @@ def setup_binamix() -> None:
             # binamix_repo = get_binamix_dir()
             # This should work but the files 404 (per November 26, 2025):
             # subprocess.run([sys.executable, "-m", "binamix.sadie_db_setup"], cwd=binamix_repo, check=True)
-            _download_sadie()
+            download_sadie()
             downloaded_sadie = True
 
     if downloaded_sadie:
@@ -52,29 +51,19 @@ def setup_binamix() -> None:
                 ) from e
 
 
-def _download_sadie() -> None:
+def download_sadie() -> None:
     binamix_repo = get_binamix_dir()
-    data_specs = {
-        "D1": (  # TODO: These files are not enough to make Binamix work ...
+    download_and_unzip(
+        (
             {
-                "url": "https://zenodo.org/records/10886409/files/D1.zip?download=1",
-                "md5": "468f0fce29c2f5880627c571b73e64c3",
+                "url": "https://zenodo.org/records/12092466/files/Database-Master_V2-2.zip?download=1",
+                "md5": "e598337f7c70af9ffa11d4a4f4f6740f",
             },
         ),
-        "D2": (
-            {
-                "url": "https://zenodo.org/records/12092466/files/D2.zip?download=1",
-                "md5": "0564133299f118fe2731f6d65abbd8f8",
-            },
-        ),
-    }
-    for subject_id, specs in data_specs.items():
-        print(f"Downloading SADIE data for subject {subject_id}...")
-        download_and_unzip(
-            specs,
-            save_dir=os.path.join(binamix_repo, "sadie", "Database-Master_V1-4"),
-            rename_extracted_dir=subject_id,
-        )
+        save_dir=binamix_repo / "sadie",
+        rename_extracted_dir="Database-Master_V2-2",  # Need to be like this for Binamix to find it
+        delete_zip=True,
+    )
 
 
 if __name__ == "__main__":
