@@ -128,8 +128,8 @@ def binaural_mix(
     fg_mixing_params = [fg[1] for fg in fg_list]
     bg_mixing_params = [bg[1] for bg in bg_list]
 
-    fg_audios = [librosa.load(fg_path, sr=global_params.sr, mono=True) for fg_path in fg_list[:,]]
-    bg_audios = [librosa.load(bg_path, sr=global_params.sr, mono=True) for bg_path in bg_list[:,]]
+    fg_audios = [librosa.load(fg[0], sr=global_params.sr, mono=True) for fg in fg_list]
+    bg_audios = [librosa.load(bg[0], sr=global_params.sr, mono=True) for bg in bg_list]
     fg_padded, bg_padded = pad_and_normalize_audio_files(fg_audios, bg_audios)
 
     fg_tracks = []
