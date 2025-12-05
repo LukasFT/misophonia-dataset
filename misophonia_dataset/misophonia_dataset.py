@@ -1,48 +1,38 @@
-import os
+import json
 import uuid
+from collections.abc import Generator
 from pathlib import Path
 from typing import Iterator, List
 
 import numpy as np
 import pandas as pd
+import pydantic
 import soundfile as sf
 
-from .interface import DEFAULT_MIX_DIR, LicenseT, SourceData, SplitT
+from .interface import License, SourceData, SplitT
 from .mixing import MixingParams
 
 
-class MisophoniaItem:
-    def __init__(
-        self,
-        *,
-        mix: np.ndarray,
-        ground_truth: np.ndarray,
-        mixing_params: MixingParams,
-        is_trig: bool,
-        fg_path: Path,
-        bg_path: Path,
-        fg_labels: List[str],
-        bg_labels: List[str],
-        fg_freesound_id: int | None,
-        bg_freesound_id: int | None,
-        split: SplitT,
-    ) -> None:
-        self.mix = mix
-        self.ground_truth = ground_truth
-        self.mixing_params = mixing_params
+class MisophoniaItem(pydantic.BaseModel):
+    split: SplitT
 
-        self.is_trig = is_trig
+    mixing_params: MixingParams
 
-        self.fg_path = fg_path
-        self.bg_path = bg_path
-        self.fg_labels = fg_labels
-        self.bg_labels = bg_labels
+    mix: np.ndarray
+    ground_truth: np.ndarray | None
 
+    fg_path: Path
+    bg_path: Path
+    fg_labels: List[str]
+    bg_labels: List[str]
 
-        self.fg_freesound_id = fg_freesound_id
-        self.bg_freesound_id = bg_freesound_id
+    fg_freesound_id: int | None
+    bg_freesound_id: int | None
 
-        self.split = split
+    fg_licensing: tuple[License, ...] | None = None
+    bg_licensing: tuple[License, ...] | None = None
+
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
 
 class MisophoniaDataset:
@@ -64,24 +54,13 @@ class MisophoniaDataset:
         assert sum(len(df) for df in df_by_split.values()) == len(all_source_data), "Some samples are missing a split."
         return df_by_split
 
-    def _save_licensing(row) -> None:
-        save_path = os.path.join(DEFAULT_MIX_DIR, "licensing.json")
-        fs_id = row['freesound_id']
-
-        if os.path.exiss(save_path):
-            with open(save_path, "r") as f:
-                data = json.load(f)
-        else:
-            data = {}
-
-        if fs_id not in data:
-            data[fs_id] = row['licensing'] 
-            with open(save_path, "w") as f:
-                json.dump(data, f, indent=2)
-
     def generate(
-        self, num_samples: int, *, split: SplitT, random_state: int = 42, to_save: bool
-    ) -> Iterator[MisophoniaItem]:
+        self,
+        num_samples: int,
+        *,
+        split: SplitT,
+        random_state: int = 42,
+    ) -> Generator[MisophoniaItem, None, None]:
         from .mixing import binaural_mix  # Import it here since it requires binamix to be setup
 
         meta = self._dfs[split]
@@ -95,93 +74,88 @@ class MisophoniaDataset:
                     samples = df.sample(n=min(n, len(df)), random_state=rand_state)
                 yield samples.iloc[i % len(df)]
 
-        trig_control_df = meta[(meta["label_type"] == "trigger") or (meta["label_type"] == "control")]
+        trig_control_df = meta[meta["label_type"].isin(["trigger", "control"])]
         background_df = meta[meta["label_type"] == "background"]
         trig_control_samples = _sample_full_then_restart(trig_control_df, num_samples)
         background_samples = _sample_full_then_restart(background_df, num_samples)
 
         for trig_control_row, bg_row in zip(trig_control_samples, background_samples):
-            # save licensing rq
-            _save_licensing(trig_control_row)
-            _save_licensing(bg_row)
+            params = MixingParams()  # Intialize random mixing params
 
-            # is trigger?
-            is_trig = 1 if trig_control_row["label_type"] == "trigger" else 0
+            is_trig = trig_control_row["label_type"] == "trigger"
 
-            params = MixingParams()
-            is_trig = True if trig_control_row["label_type"] == "trigger" else False
-            (
-                mix,
-                ground_truth,
-                _,
-            ) = binaural_mix(trig_control_row["file_path"], bg_row["file_path"], params, is_trig=is_trig)
+            mix, ground_truth, _ = binaural_mix(
+                fg_path=trig_control_row["file_path"],
+                bg_path=bg_row["file_path"],
+                params=params,
+                is_trig=is_trig,
+            )
+
             miso_item = MisophoniaItem(
+                split=split,
                 mix=mix,
                 ground_truth=ground_truth,
                 mixing_params=params,
-                is_trig = is_trig,
+                is_trig=is_trig,
                 fg_path=trig_control_row["file_path"],
                 bg_path=bg_row["file_path"],
                 fg_labels=trig_control_row["labels"],
                 bg_labels=bg_row["labels"],
                 fg_freesound_id=trig_control_row["freesound_id"],
                 bg_freesound_id=bg_row["freesound_id"],
-                split=SplitT,
+                fg_licensing=trig_control_row["licensing"],
+                bg_licensing=bg_row["licensing"],
             )
 
             yield miso_item
 
 
-def save_file(item: MisophoniaItem, split: SplitT, id: uuid.UUID, base_dir: Path = DEFAULT_MIX_DIR) -> tuple[str, str]:
-    mix_path = os.path.join(base_dir, str(split), "mix", str(id))
-    ground_truth_path = os.path.join(base_dir, str(split), "ground_truth", f"{id}_ground_truth")
-
-    os.makedirs(os.path.dirname(mix_path), exist_ok=True)
-    os.makedirs(os.path.dirname(ground_truth_path), exist_ok=True)
-
-    sf.write(mix_path + ".wav", item.mix, item.mixing_params.sr)
-    sf.write(ground_truth_path + ".wav", item.ground_truth, item.mixing_params.sr)
-
-    return mix_path + ".wav", ground_truth_path + ".wav"
-
-
-def generate_miso_dataset(
-    dataset: MisophoniaDataset,
-    n_samples: int,
+def save_miso_dataset(
+    generator: Generator[MisophoniaItem, None, None],
     split: SplitT,
-) -> pd.DataFrame:
-    """
-    Generates n_samples of binaural mixes and saves mixes + ground_truths to binaural_data/{split}.
-    Should be called to generate a dataset. To generate data on the fly, just call dataset.generate(n_samples, split) and
-    proceed accordingly.
-    """
-    rows = [None] * n_samples
-    i = 0
-    for item in dataset.generate(num_samples=n_samples, split=split):
-        # Save audio
-        idx = str(uuid.uuid4())
-        mix_path, ground_truth_path = save_file(item, split, idx)
+    *,
+    base_dir: Path | None = None,
+) -> list[dict]:
+    rows = []
+    license_rows = []  # TODO: implement license saving
 
-        # Save metadata
+    base_dir = base_dir if base_dir is not None else Path(__file__).parent.parent / "data" / "mixed"
+
+    split_dir = base_dir / split
+    mix_dir = split_dir / "mixes"
+    gt_dir = split_dir / "ground_truths"
+    metadata_file = split_dir / "metadata.json"
+
+    if mix_dir.exists() or gt_dir.exists():
+        raise FileExistsError(f"Directory for split '{split}' already exists at {base_dir / split}")
+
+    mix_dir.mkdir(parents=True)
+    gt_dir.mkdir(parents=True)
+
+    for item in generator:
+        mix_id = str(uuid.uuid4())  # Make unique ID for each mix
+
+        mix_file = mix_dir / f"{mix_id}.wav"
+        sf.write(mix_file, np.transpose(item.mix), samplerate=item.mixing_params.sr, subtype="PCM_24")
+
+        if item.ground_truth is not None:
+            gt_file = gt_dir / f"{mix_id}.wav"
+            sf.write(gt_file, np.transpose(item.ground_truth), samplerate=item.mixing_params.sr, subtype="PCM_24")
+
         row = {
-            "uuid": idx,  # generate a new UUID for each row
-            "mix_path": mix_path,
-            "ground_truth_path": ground_truth_path,
-            "mixing_params": item.mixing_params,  # can store object or convert to dict
+            "mix_id": mix_id,
+            "split": item.split,
             "is_trig": item.is_trig,
-            "fg_path": str(item.fg_path),
-            "bg_path": str(item.bg_path),
             "fg_labels": item.fg_labels,
             "bg_labels": item.bg_labels,
-            "fg_freesound_id": item.fg_freesound_id, # key for license info in DEFAULT_MIX_DIR/licensing.json
-            "bg_freesound_id": item.bg_freesound_id, # key for license info in DEFAULT_MIX_DIR/licensing.json
-            "split": item.split,
+            "fg_freesound_id": item.fg_freesound_id,
+            "bg_freesound_id": item.bg_freesound_id,
+            "mixing_params": item.mixing_params.model_dump(),
         }
-        rows[i] = row
-        i += 1
+        # TODO: handle licenses
+        rows.append(row)
 
-    df = pd.DataFrame(rows)
-    metadata_path = os.path.join(DEFAULT_MIX_DIR, f"{split}_metadata.json")
-    df.to_json(metadata_path orient="records", indent=4)  # TODO: json or csv?
+    with metadata_file.open("w") as f:
+        json.dump(rows, f, indent=4)
 
-    return df
+    return rows

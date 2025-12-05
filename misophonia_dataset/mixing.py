@@ -3,7 +3,7 @@ from pathlib import Path
 
 import librosa
 import numpy as np
-from pydantic import BaseModel, Field
+import pydantic
 
 from ._binamix import setup_binamix
 
@@ -11,24 +11,24 @@ setup_binamix()
 from binamix.sadie_utilities import TrackObject, mix_tracks_binaural  # type: ignore
 
 
-class MixingParams(BaseModel):
+class MixingParams(pydantic.BaseModel):
     # spatial placement (example ranges, adjust as needed)
-    fg_azimuth: float = Field(default_factory=lambda: random.randint(-180, 180))
-    fg_elevation: float = Field(default_factory=lambda: random.randint(-180, 180))
+    fg_azimuth: float = pydantic.Field(default_factory=lambda: random.randint(-180, 180))
+    fg_elevation: float = pydantic.Field(default_factory=lambda: random.randint(-180, 180))
 
-    bg_azimuth: float = Field(default_factory=lambda: random.randint(-180, 180))
-    bg_elevation: float = Field(default_factory=lambda: random.randint(-180, 180))
+    bg_azimuth: float = pydantic.Field(default_factory=lambda: random.randint(-180, 180))
+    bg_elevation: float = pydantic.Field(default_factory=lambda: random.randint(-180, 180))
 
     # audio gain
-    fg_level: float = Field(default_factory=lambda: round(random.uniform(0.4, 1.0), 1))
+    fg_level: float = pydantic.Field(default_factory=lambda: round(random.uniform(0.4, 1.0), 1))
 
     # metadata
-    subject_id: int = Field(default_factory=lambda: random.choice(["D1", "D2"]))
+    subject_id: str = pydantic.Field(default_factory=lambda: random.choice(["D1", "D2"]))
     speaker_layout: str = "none"
     sr: int = 44100
 
     # reverb selection (chooses one of 1–4 as string)
-    reverb_type: str = Field(default_factory=lambda: random.choice(["1", "2", "3", "4"]))
+    reverb_type: str = pydantic.Field(default_factory=lambda: random.choice(["1", "2", "3", "4"]))
 
 
 def pad_and_normalize_audio_files(fg_audio: np.ndarray, bg_audio: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -74,7 +74,7 @@ def validation_binaural_mix(
     trig: Path,
     control: Path,
     bg: Path,
-) -> tuple[tuple[np.darray, np.ndarray, int], tuple[np.ndarray, np.ndarray, int]]:
+) -> tuple[tuple[np.ndarray, np.ndarray, int], tuple[np.ndarray, np.ndarray, int]]:
     """
     Mixing function specially designed for the validation experiment. Guarantees (trig, bg) (ctrl, bg) pairs with equivalent
     mixing parameters.
@@ -97,16 +97,18 @@ def validation_binaural_mix(
         is_trig=False,
     )
 
+    raise NotImplementedError("Control variable is not even used here ...")
+
     return (t_mix, t_gt, t_sr), (c_mix, c_gt, c_sr)
 
 
 def binaural_mix(
-    fg: Path,
-    bg: Path,
+    fg_path: Path,
+    bg_path: Path,
     params: MixingParams,
     *,
     is_trig: bool,
-) -> tuple[np.ndarray, np.ndarray, int]:
+) -> tuple[np.ndarray, np.ndarray | None, int]:
     """
     Max a binaural mix of a foreground (trigger) and background sound.
 
@@ -116,13 +118,14 @@ def binaural_mix(
 
     Returns:
         mix (np.ndarray): binaural mixed audio
+        ground_truth (np.ndarray | None): binaural ground truth audio for foreground (trigger) sound, or None if not applicable
         sr (int): sample rate of mixed audio
     """
     ir_type = "BRIR"
 
     # MIXING
-    fg_audio, _ = librosa.load(params.fg, sr=params.sr, mono=True)
-    bg_audio, _ = librosa.load(params.bg, sr=params.sr, mono=True)
+    fg_audio, _ = librosa.load(fg_path, sr=params.sr, mono=True)
+    bg_audio, _ = librosa.load(bg_path, sr=params.sr, mono=True)
 
     fg_padded, bg_padded = pad_and_normalize_audio_files(fg_audio, bg_audio)
 
@@ -154,6 +157,17 @@ def binaural_mix(
     )
 
     if is_trig:
-        return mix, fg_padded, params.sr
+        ground_truth = mix_tracks_binaural(
+            [fg_track],
+            params.subject_id,
+            params.sr,
+            ir_type,
+            params.speaker_layout,
+            mode="nearest",
+            reverb_type=params.reverb_type,
+        )
+        assert ground_truth.shape == mix.shape, "Ground truth and mix shapes do not match."
+
+        return mix, ground_truth, params.sr
     else:
-        return mix, np.zeros(fg_padded.shape[0]), params.sr  # silence for control sound
+        return mix, None, params.sr  # silence for control sound

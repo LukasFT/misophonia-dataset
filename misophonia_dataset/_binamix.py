@@ -61,7 +61,7 @@ def download_sadie() -> None:
             },
         ),
         save_dir=binamix_repo / "sadie",
-        rename_extracted_dir="Database-Master_V2-2",  # Need to be like this for Binamix to find it
+        rename_extracted_dir="Database-Master_V2-2",  # Must  be named exactly "Database-Master_V1-4" to be found by Binamix (even if that issss not the version)
         delete_zip=True,
     )
 

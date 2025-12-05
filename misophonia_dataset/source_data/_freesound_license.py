@@ -10,7 +10,7 @@ import eliot
 import pandas as pd
 import requests
 
-from ..interface import LicenseT
+from ..interface import License
 
 LICENSE_STORE_PATH = Path(__file__).parent / "freesound_license.csv"
 
@@ -23,7 +23,7 @@ def get_freesound_licenses() -> pd.DataFrame:
 
 def generate_freesound_licenses(
     freesound_ids: pd.Series,
-    base_licenses: Collection[LicenseT] = (),
+    base_licenses: Collection[License] = (),
     retries: int = 10,
 ) -> pd.Series:
     try:
@@ -50,7 +50,7 @@ def generate_freesound_licenses(
 
 def _generate_freesound_licenses(
     freesound_ids: pd.Series,
-    base_licenses: Collection[LicenseT] = (),
+    base_licenses: Collection[License] = (),
 ) -> pd.Series:
     freesound_licenses = get_freesound_licenses()
     updates = {}
@@ -91,7 +91,7 @@ def _generate_freesound_licenses(
             eliot.log_message("Saved updated licenses.", level="debug")
 
 
-def _get_from_freesound_api(freesound_id: str) -> LicenseT:
+def _get_from_freesound_api(freesound_id: str) -> License:
     api_token = os.getenv("FREESOUND_API_TOKEN")
     assert api_token is not None, (
         "FREESOUND_API_TOKEN environment variable not set. It is needed to get freesound licenses."
@@ -101,11 +101,11 @@ def _get_from_freesound_api(freesound_id: str) -> LicenseT:
     response = requests.get(url)
 
     if response.status_code == 404:
-        return {
-            "license_url": "N/A",
-            "attribution_name": "N/A",
-            "attribution_url": "N/A",
-        }
+        return License(
+            license_url="N/A",
+            attribution_name="N/A",
+            attribution_url="N/A",
+        )
 
     try:
         response.raise_for_status()
@@ -120,15 +120,15 @@ def _get_from_freesound_api(freesound_id: str) -> LicenseT:
     return _generate_info(freesound_id, data["license"], data["username"])
 
 
-def _generate_info(freesound_id: str, license_url: str, username: str) -> LicenseT:  # noqa: ANN001
-    return {
-        "license_url": license_url,
-        "attribution_name": username,
-        "attribution_url": f"https://freesound.org/people/{username}/sounds/{freesound_id}/",
-    }
+def _generate_info(freesound_id: str, license_url: str, username: str) -> License:  # noqa: ANN001
+    return License(
+        license_url=license_url,
+        attribution_name=username,
+        attribution_url=f"https://freesound.org/people/{username}/sounds/{freesound_id}/",
+    )
 
 
-def _generate_from_row(row) -> LicenseT:  # noqa: ANN001
+def _generate_from_row(row) -> License:  # noqa: ANN001
     # if row["license"] is not a valid URL, return None (it happened in some cases ...)
     import re
 
