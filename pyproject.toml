@@ -23,7 +23,6 @@ dependencies = [
     "soxr>=1.0.0",
     "typer>=0.15.1",
     "tqdm>=4.67.1",
-    "pandera>=0.26.1",
     "eliot>=1.17.5",
     "pydantic>=2.11.10",
 ]

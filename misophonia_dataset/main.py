@@ -11,6 +11,7 @@ from pathlib import Path
 import eliot
 import pandas as pd
 import typer
+from tqdm import tqdm
 from typing_extensions import Annotated
 
 from ._binamix import download_sadie
@@ -37,6 +38,11 @@ def generate(
     source_base_dir: Annotated[Path, typer.Option("--source-dir", help="Directory to save datasets")] = None,
     num_samples: Annotated[int, typer.Option("--num-samples", "-n", help="Number of samples to generate")] = 1,
     splits: Annotated[list[str], typer.Option("--splits", "-p", help="Dataset splits to include")] = None,
+    trig_to_ctrl: Annotated[float, typer.Option("--trig-to-ctrl", help="Ratio of trigger to control sounds")] = 0.5,
+    min_fgs_pr_item: Annotated[int, typer.Option("--min-fgs-pr-item", help="Minimum foregrounds per item")] = 1,
+    max_fgs_pr_item: Annotated[int, typer.Option("--max-fgs-pr-item", help="Maximum foregrounds per item")] = 1,
+    min_bgs_pr_item: Annotated[int, typer.Option("--min-bgs-pr-item", help="Minimum backgrounds per item")] = 1,
+    max_bgs_pr_item: Annotated[int, typer.Option("--max-bgs-pr-item", help="Maximum backgrounds per item")] = 3,
     seed: Annotated[int, typer.Option("--random-seed", "-r", help="Random seed for sampling")] = 42,
 ) -> None:
     datasets = _get_default_datasets() if datasets is None or len(datasets) == 0 else datasets
@@ -53,9 +59,24 @@ def generate(
         else:
             raise FileExistsError(f"Target directory {target_base_dir} already exists.")
 
+    eliot.log_message("Preparing source data", level="info")
+    misophonia_dataset.prepare_source_data()
+
     for split in splits:
+        eliot.log_message(f"Generating and saving {split} items", level="info")
         save_miso_dataset(
-            misophonia_dataset.generate(num_samples=num_samples, split=split, random_state=seed),
+            tqdm(
+                misophonia_dataset.generate(
+                    num_samples=num_samples,
+                    split=split,
+                    random_seed=seed,
+                    foregrounds_per_item=(min_fgs_pr_item, max_fgs_pr_item),
+                    backgrounds_per_item=(min_bgs_pr_item, max_bgs_pr_item),
+                    trig_to_control_ratio=trig_to_ctrl,
+                ),
+                desc=f"Generating and saving {split} items",
+                total=num_samples,
+            ),
             split=split,
             base_dir=target_base_dir,
         )

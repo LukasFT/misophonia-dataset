@@ -1,9 +1,10 @@
 import json
+from collections.abc import Collection
 from pathlib import Path
 
 import pandas as pd
 
-from ..interface import License, MappingT, SourceData, SourceMetaData, get_default_data_dir
+from ..interface import License, MappingT, SourceData, SourceDataItem, get_default_data_dir
 from ._downloading import download_and_unzip, is_unzipped
 from ._freesound_license import generate_freesound_licenses
 from ._splitting import is_validated_ids, train_valid_test_split
@@ -121,7 +122,7 @@ class Fsd50kDataset(SourceData):
                 delete_zip=True,
             )
 
-    def get_metadata(self) -> SourceMetaData:
+    def get_metadata(self) -> Collection[SourceDataItem]:
         """
         Collects triggers, controls, backgrounds from full FSD50K.dev set using predefined class mappings.
         Removes all unused sound samples.
@@ -141,8 +142,12 @@ class Fsd50kDataset(SourceData):
 
         meta["freesound_id"] = meta["fsd50k_fname"]  # The filename base is just the freesound id
 
+        cwd = Path.cwd()
         meta["file_path"] = meta.apply(
-            lambda row: str(self._base_save_dir / f"{row['fsd50k_split']}_audio" / f"{row['fsd50k_fname']}.wav"), axis=1
+            lambda row: (
+                self._base_save_dir / f"{row['fsd50k_split']}_audio" / f"{row['fsd50k_fname']}.wav"
+            ).relative_to(cwd),
+            axis=1,
         )
 
         meta["fsd50k_labels"] = meta["fsd50k_labels"].astype(str).str.split(",")
@@ -201,7 +206,9 @@ class Fsd50kDataset(SourceData):
         meta["validated_by"] = is_validated_ids(meta["freesound_id"])
         meta["split"] = train_valid_test_split(meta["freesound_id"], validated_by=meta["validated_by"], fsd50k=self)
 
-        self._meta = SourceMetaData.validate(meta)
+        self._meta = [
+            SourceDataItem(**row) for row in meta.to_dict(orient="records")
+        ]  # Could probably be done more efficiently without pandas
         return self._meta
 
     def get_original_splits(self) -> pd.DataFrame:

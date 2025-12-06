@@ -1,8 +1,9 @@
+from collections.abc import Collection
 from pathlib import Path
 
 import pandas as pd
 
-from ..interface import License, SourceData, SourceMetaData, get_default_data_dir
+from ..interface import License, SourceData, SourceDataItem, get_default_data_dir
 from ._downloading import download_and_unzip, download_single_file, is_downloaded, is_unzipped
 from ._freesound_license import generate_freesound_licenses
 from ._splitting import is_validated_ids, train_valid_test_split
@@ -48,7 +49,7 @@ class FoamsDataset(SourceData):
             rename_extracted_dir="processed_audio",
         )
 
-    def get_metadata(self) -> SourceMetaData:
+    def get_metadata(self) -> Collection[SourceDataItem]:
         if self._meta is not None:
             return self._meta
 
@@ -60,8 +61,9 @@ class FoamsDataset(SourceData):
 
         meta["labels"] = meta["labels"].apply(lambda x: [x])  # Make singular lists to align with other datasets
         meta["label_type"] = "trigger"  # All FOAMS sounds are triggers
+        cwd = Path.cwd()
         meta["file_path"] = meta["freesound_id"].apply(
-            lambda x: str(self._base_save_dir / "processed_audio" / f"{x}_processed.wav")
+            lambda x: (self._base_save_dir / "processed_audio" / f"{x}_processed.wav").relative_to(cwd)
         )
 
         meta["licensing"] = generate_freesound_licenses(
@@ -78,7 +80,9 @@ class FoamsDataset(SourceData):
         meta["validated_by"] = is_validated_ids(meta["freesound_id"])
         meta["split"] = train_valid_test_split(meta["freesound_id"], validated_by=meta["validated_by"])
 
-        self._meta = SourceMetaData.validate(meta)
+        self._meta = [
+            SourceDataItem(**row) for row in meta.to_dict(orient="records")
+        ]  # Could probably be done more efficiently without pandas
         return self._meta
 
     def get_all_sound_ids(self) -> pd.Series:
