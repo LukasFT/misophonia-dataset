@@ -17,7 +17,7 @@ from typing_extensions import Annotated
 from ._binamix import download_sadie
 from ._log import setup_print_logging
 from .interface import SourceData, get_default_data_dir
-from .misophonia_dataset import MisophoniaDataset, save_miso_dataset
+from .misophonia_dataset import GeneratedMisophoniaDataset, save_miso_dataset
 from .source_data.esc50 import Esc50Dataset
 from .source_data.foams import FoamsDataset
 from .source_data.fsd50k import Fsd50kDataset
@@ -50,7 +50,7 @@ def generate(
 
     splits = ["train", "val", "test"] if splits is None or len(splits) == 0 else splits
 
-    misophonia_dataset = MisophoniaDataset(source_data=datasets)
+    misophonia_dataset = GeneratedMisophoniaDataset(source_data=datasets)
 
     if target_base_dir.exists():
         if replace:
@@ -60,13 +60,13 @@ def generate(
             raise FileExistsError(f"Target directory {target_base_dir} already exists.")
 
     eliot.log_message("Preparing source data", level="info")
-    misophonia_dataset.prepare_source_data()
+    misophonia_dataset.prepare()
 
     for split in splits:
         eliot.log_message(f"Generating and saving {split} items", level="info")
         save_miso_dataset(
             tqdm(
-                misophonia_dataset.generate(
+                misophonia_dataset.iterate(
                     num_samples=num_samples,
                     split=split,
                     random_seed=seed,

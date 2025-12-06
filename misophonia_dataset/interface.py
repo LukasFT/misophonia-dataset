@@ -1,11 +1,12 @@
 import itertools
 from abc import ABC, abstractmethod
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 from pathlib import Path
 from typing import Literal, TypeAlias
 
 import numpy as np
 import pydantic
+import soundfile as sf
 
 MappingT: TypeAlias = dict[str, dict[Literal["foams_mapping"], str]]
 """The structure of a mapping from dataset-specific classes to FOAMS classes."""
@@ -57,9 +58,6 @@ class SourceDataItem(BaseModel):
     )
 
 
-import random
-
-
 class SourceTrack(BaseModel):
     source_item: SourceDataItem
 
@@ -68,12 +66,32 @@ class SourceTrack(BaseModel):
     end: int
     """End time (in samples, i.e. not time) of the clip."""
 
-    azimuth: float = pydantic.Field(default_factory=lambda: random.randint(-180, 180))
-    elevation: float = pydantic.Field(default_factory=lambda: random.randint(-180, 180))
-    level: float = pydantic.Field(default_factory=lambda: round(random.uniform(0.4, 1.0), 1))
-    reverb: float = pydantic.Field(
-        default_factory=lambda: round(random.uniform(0.0, 1.0), 1)  # TODO: What should be the default?
-    )
+    # Random defaults:
+    azimuth: float
+    elevation: float
+    level: float
+    reverb: float
+
+    _rng: np.random.Generator = pydantic.PrivateAttr(default_factory=np.random.default_rng)
+
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def fill_defaults(cls, values: list):  # noqa: ANN001, ANN206
+        rng: np.random.Generator = values.pop("_rng", np.random.default_rng())
+
+        if "azimuth" not in values:
+            values["azimuth"] = rng.integers(-180, 181)
+
+        if "elevation" not in values:
+            values["elevation"] = rng.integers(-180, 181)
+
+        if "level" not in values:
+            values["level"] = round(rng.uniform(0.4, 1.0), 1)
+
+        if "reverb" not in values:  # TODO: What should be the default?
+            values["reverb"] = round(rng.uniform(0.0, 1.0), 1)
+
+        return values
 
 
 class GlobalMixingParams(BaseModel):
@@ -146,9 +164,17 @@ class MisophoniaItem(BaseModel):
     background_categories: tuple[str, ...]
 
     mix: np.ndarray | Path
-    """Binaural mixed audio data for both foreground and background sounds."""
+    """
+    Binaural mixed audio data for both foreground and background sounds.
+
+    See get_mix_audio() to load the audio data from the file if it is a Path.
+    """
     ground_truth: np.ndarray | Path | None
-    """Ground truth audio data. If available, this is the isolated binaural audio for the trigger sound."""
+    """
+    Ground truth audio data. If available, this is the isolated binaural audio for the trigger sound.
+    
+    See get_ground_truth_audio() to load the audio data from the file if it is a Path.
+    """
     length: int
     """Duration in number of samples."""
 
@@ -173,6 +199,22 @@ class MisophoniaItem(BaseModel):
         if any(track.source_item.split != self.split for track in itertools.chain(self.foregrounds, self.backgrounds)):
             raise ValueError("All foreground and background items must match the MisophoniaItem split.")
         return self
+
+    def get_mix_audio(self) -> np.ndarray:
+        if isinstance(self.mix, Path):
+            return self._load_audio(self.mix)
+        return self.mix
+
+    def get_ground_truth_audio(self) -> np.ndarray | None:
+        if isinstance(self.ground_truth, Path):
+            return self._load_audio(self.ground_truth)
+        return self.ground_truth
+
+    @staticmethod
+    def _load_audio(p: Path) -> np.ndarray:
+        sound = sf.read(p)[0]
+        sound = sound.T  # C, samples (like librosa)
+        return sound
 
 
 def get_default_data_dir(*, dataset_name: str | None = None, base_dir: Path | None = None) -> Path:
@@ -213,3 +255,21 @@ class SourceData(ABC):
 
     def __str__(self) -> str:
         return f"<SourceData: {self.__class__.__name__}>"
+
+
+class MisophoniaDataset(ABC):
+    @abstractmethod
+    def prepare(self) -> None:
+        pass
+
+    @abstractmethod
+    def iterate(self, split: SplitT, **kwargs: dict) -> Iterable[MisophoniaItem]:
+        pass
+
+    def __getitem__(self, split: SplitT) -> Iterable[MisophoniaItem]:
+        """
+        Allow accessing dataset items using indexing syntax, e.g., dataset["train"].
+
+        This syntax does not allow arguments
+        """
+        return self.iterate(split)
