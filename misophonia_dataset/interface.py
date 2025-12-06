@@ -200,12 +200,23 @@ class MisophoniaItem(BaseModel):
             raise ValueError("All foreground and background items must match the MisophoniaItem split.")
         return self
 
+    # validate that iff is_trigger then ground_truth is not None
+    @pydantic.model_validator(mode="after")
+    def check_ground_truth(self) -> "MisophoniaItem":
+        if self.is_trigger and self.ground_truth is None:
+            raise ValueError("If is_trigger is True, ground_truth must not be None.")
+        if not self.is_trigger and self.ground_truth is not None:
+            raise ValueError("If is_trigger is False, ground_truth must be None.")
+        return self
+
     def get_mix_audio(self) -> np.ndarray:
         if isinstance(self.mix, Path):
             return self._load_audio(self.mix)
         return self.mix
 
-    def get_ground_truth_audio(self) -> np.ndarray | None:
+    def get_ground_truth_audio(self) -> np.ndarray:
+        if self.ground_truth is None:
+            return np.zeros((2, self.length))
         if isinstance(self.ground_truth, Path):
             return self._load_audio(self.ground_truth)
         return self.ground_truth
