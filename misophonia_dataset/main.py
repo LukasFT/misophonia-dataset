@@ -29,6 +29,7 @@ app = typer.Typer(help="Misophonia Dataset CLI")
 @app.command()
 def generate(
     target_base_dir: Annotated[Path, typer.Argument(help="Directory to save generated dataset")],
+    split: Annotated[list[str], typer.Argument(help="Dataset split to generate")],
     *,
     replace: Annotated[bool, typer.Option("--replace", "-f", help="Replace existing directory if it exists")] = False,
     datasets: Annotated[
@@ -36,7 +37,6 @@ def generate(
     ] = None,
     source_base_dir: Annotated[Path, typer.Option("--source-dir", help="Directory to save datasets")] = None,
     num_samples: Annotated[int, typer.Option("--num-samples", "-n", help="Number of samples to generate")] = 1,
-    splits: Annotated[list[str], typer.Option("--splits", "-p", help="Dataset splits to include")] = None,
     trig_to_ctrl: Annotated[float, typer.Option("--trig-to-ctrl", help="Ratio of trigger to control sounds")] = 0.5,
     min_fgs_pr_item: Annotated[int, typer.Option("--min-fgs-pr-item", help="Minimum foregrounds per item")] = 1,
     max_fgs_pr_item: Annotated[int, typer.Option("--max-fgs-pr-item", help="Maximum foregrounds per item")] = 1,
@@ -46,8 +46,6 @@ def generate(
 ) -> None:
     datasets = _get_default_datasets() if datasets is None or len(datasets) == 0 else datasets
     datasets = tuple(_get_dataset_from_name(name, base_dir=source_base_dir) for name in datasets)
-
-    splits = ["train", "val", "test"] if splits is None or len(splits) == 0 else splits
 
     misophonia_dataset = GeneratedMisophoniaDataset(source_data=datasets)
 
@@ -61,20 +59,19 @@ def generate(
     eliot.log_message("Preparing source data", level="info")
     misophonia_dataset.prepare()
 
-    for split in splits:
-        eliot.log_message(f"Generating and saving {split} items", level="info")
-        save_miso_dataset(
-            misophonia_dataset.get_split(
-                split=split,
-                num_samples=num_samples,
-                random_seed=seed,
-                foregrounds_per_item=(min_fgs_pr_item, max_fgs_pr_item),
-                backgrounds_per_item=(min_bgs_pr_item, max_bgs_pr_item),
-                trig_to_control_ratio=trig_to_ctrl,
-            ),
-            show_progress=True,
-            base_dir=target_base_dir,
-        )
+    eliot.log_message(f"Generating and saving {split} items", level="info")
+    save_miso_dataset(
+        misophonia_dataset.get_split(
+            split=split,
+            num_samples=num_samples,
+            random_seed=seed,
+            foregrounds_per_item=(min_fgs_pr_item, max_fgs_pr_item),
+            backgrounds_per_item=(min_bgs_pr_item, max_bgs_pr_item),
+            trig_to_control_ratio=trig_to_ctrl,
+        ),
+        show_progress=True,
+        base_dir=target_base_dir,
+    )
 
 
 @app.command()

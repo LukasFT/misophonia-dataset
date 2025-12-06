@@ -50,6 +50,7 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
         trig_to_control_ratio: float = 0.5,
         random_seed: int = 42,
         n_paired_sounds: int = 0,  # TODO
+        min_length: int | None = None,  # TODO
     ) -> MisophoniaDatasetSplit:
         from .mixing import binaural_mix, prepare_track_specs
 
