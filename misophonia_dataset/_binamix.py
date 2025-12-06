@@ -71,7 +71,7 @@ def download_sadie() -> None:
 def custom_mix_tracks_binaural(**kwargs) -> None:  # noqa: ANN003
     from binamix.sadie_utilities import mix_tracks_binaural  # type: ignore
 
-    with contextlib.redirect_stdout(open(os.devnull, "w")):  # Silence their printing
+    with contextlib.redirect_stdout(open(os.devnull, "w")):  # Silence their printing (can break in multiprocessing)
         return mix_tracks_binaural(**kwargs)
 
 
