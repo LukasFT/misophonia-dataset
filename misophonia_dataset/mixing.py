@@ -59,6 +59,7 @@ def prepare_track_specs(
             source_item=item,
             start=start,
             end=end,
+            _rng=rng,
             **options,
         )
 

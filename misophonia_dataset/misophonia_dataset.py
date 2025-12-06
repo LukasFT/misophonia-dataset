@@ -1,5 +1,7 @@
 import itertools
+import json
 import uuid
+import warnings
 from collections.abc import Generator, Iterable
 from pathlib import Path
 from typing import Iterator
@@ -7,10 +9,10 @@ from typing import Iterator
 import numpy as np
 import soundfile as sf
 
-from .interface import GlobalMixingParams, MisophoniaItem, SourceData, SourceDataItem, SplitT
+from .interface import GlobalMixingParams, MisophoniaDataset, MisophoniaItem, SourceData, SourceDataItem, SplitT
 
 
-class MisophoniaDataset:
+class GeneratedMisophoniaDataset(MisophoniaDataset):
     def __init__(self, source_data: list[SourceData]) -> None:
         self._source_data = source_data
         # each source data has a metadata dataframe
@@ -18,11 +20,11 @@ class MisophoniaDataset:
 
         self._items_by_split: dict[SplitT, list[SourceDataItem]] | None = None  # Evaluate lazily
 
-    def generate(
+    def iterate(
         self,
-        num_samples: int,
-        *,
         split: SplitT,
+        *,
+        num_samples: int,
         foregrounds_per_item: tuple[int, int] = (1, 1),
         backgrounds_per_item: tuple[int, int] = (1, 3),
         trig_to_control_ratio: float = 0.5,
@@ -30,8 +32,15 @@ class MisophoniaDataset:
     ) -> Generator[MisophoniaItem, None, None]:
         from .mixing import binaural_mix, prepare_track_specs  # Import it here since it requires binamix to be setup
 
-        if self._items_by_split is None:
-            self.prepare_source_data()
+        if split == "test":
+            warnings.warn(
+                """You are generating a new test dataset that is not the canonical version. """
+                """Please do not use this for comparisons across different papers. """
+                """See PremadeMisophoniaDataset for loading the canonical test dataset.""",
+                UserWarning,
+            )
+
+        self.prepare()
 
         items: list[SourceDataItem] = self._items_by_split[split]
 
@@ -96,7 +105,7 @@ class MisophoniaDataset:
                 backgrounds=background_tracks,
             )
 
-    def prepare_source_data(self) -> None:
+    def prepare(self) -> None:
         if self._items_by_split is not None:
             return
 
@@ -111,6 +120,50 @@ class MisophoniaDataset:
             items_by_split[item.split].append(item)
 
         self._items_by_split = items_by_split
+
+
+class PremadeMisophoniaDataset(MisophoniaDataset):
+    def __init__(self, base_dir: Path | str) -> None:
+        self.base_dir = Path(base_dir)
+
+        self._items_by_split: dict[SplitT, list[MisophoniaItem]] | None = None
+
+    def prepare(self) -> None:
+        if self._items_by_split is not None:
+            return
+
+        self._items_by_split = {"train": [], "val": [], "test": []}
+
+        cwd = Path.cwd()
+
+        for split in self._items_by_split.keys():
+            split_dir = (self.base_dir / split).resolve().relative_to(cwd)
+            metadata_file = split_dir / "metadata.jsonl"
+
+            if not metadata_file.exists():
+                # Allow missing splits (e.g. only train/val present)
+                self._items_by_split[split] = None
+                continue
+
+            with metadata_file.open("r", encoding="utf-8") as f:
+                for line in f:
+                    if line == "":
+                        continue
+
+                    obj = json.loads(line)
+                    obj["mix"] = split_dir / obj["mix"]
+                    obj["ground_truth"] = split_dir / obj["ground_truth"] if obj["ground_truth"] is not None else None
+                    item = MisophoniaItem.model_validate(obj)
+                    self._items_by_split[split].append(item)
+
+    def iterate(self, split: SplitT) -> Iterable[MisophoniaItem]:
+        self.prepare()
+
+        if self._items_by_split[split] is None:
+            raise ValueError(f"No data available for split '{split}'")
+
+        for item in self._items_by_split[split]:
+            yield item
 
 
 def save_miso_dataset(
