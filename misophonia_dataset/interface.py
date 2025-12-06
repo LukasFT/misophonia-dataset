@@ -1,6 +1,6 @@
 import itertools
 from abc import ABC, abstractmethod
-from collections.abc import Collection, Iterable
+from collections.abc import Callable, Collection, Iterator, Sequence
 from pathlib import Path
 from typing import Literal, TypeAlias
 
@@ -257,19 +257,58 @@ class SourceData(ABC):
         return f"<SourceData: {self.__class__.__name__}>"
 
 
+class MisophoniaDatasetSplit(Sequence[MisophoniaItem]):
+    """
+    A view over a particular dataset split with fixed generation parameters.
+
+    Heavy work (mixing) happens in __getitem__, via the provided generate_one callback.
+    """
+
+    def __init__(
+        self,
+        *,
+        split: SplitT,
+        num_samples: int,
+        get_one: Callable[[int], MisophoniaItem],
+    ) -> None:
+        self._split = split
+        self._num_samples = num_samples
+        self._get_one = get_one
+
+    @property
+    def split(self) -> SplitT:
+        return self._split
+
+    def __len__(self) -> int:
+        return self._num_samples
+
+    def __getitem__(self, idx: int) -> MisophoniaItem:
+        if idx < 0:
+            idx += self._num_samples
+        if not (0 <= idx < self._num_samples):
+            raise IndexError(idx)
+        return self._get_one(idx)
+
+    def __iter__(self) -> Iterator[MisophoniaItem]:
+        for i in range(self._num_samples):
+            yield self._get_one(i)
+
+
 class MisophoniaDataset(ABC):
     @abstractmethod
     def prepare(self) -> None:
+        """Download / index / precompute anything needed before generation."""
         pass
 
     @abstractmethod
-    def iterate(self, split: SplitT, **kwargs: dict) -> Iterable[MisophoniaItem]:
+    def get_split(
+        self,
+        split: SplitT,
+        **kwargs: object,
+    ) -> MisophoniaDatasetSplit:
+        """
+        Return a split view for this dataset.
+
+        kwargs are generation parameters (e.g. random_seed, foregrounds_per_item, ...).
+        """
         pass
-
-    def __getitem__(self, split: SplitT) -> Iterable[MisophoniaItem]:
-        """
-        Allow accessing dataset items using indexing syntax, e.g., dataset["train"].
-
-        This syntax does not allow arguments
-        """
-        return self.iterate(split)

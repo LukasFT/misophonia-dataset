@@ -11,7 +11,6 @@ from pathlib import Path
 import eliot
 import pandas as pd
 import typer
-from tqdm import tqdm
 from typing_extensions import Annotated
 
 from ._binamix import download_sadie
@@ -65,19 +64,15 @@ def generate(
     for split in splits:
         eliot.log_message(f"Generating and saving {split} items", level="info")
         save_miso_dataset(
-            tqdm(
-                misophonia_dataset.iterate(
-                    num_samples=num_samples,
-                    split=split,
-                    random_seed=seed,
-                    foregrounds_per_item=(min_fgs_pr_item, max_fgs_pr_item),
-                    backgrounds_per_item=(min_bgs_pr_item, max_bgs_pr_item),
-                    trig_to_control_ratio=trig_to_ctrl,
-                ),
-                desc=f"Generating and saving {split} items",
-                total=num_samples,
+            misophonia_dataset.get_split(
+                split=split,
+                num_samples=num_samples,
+                random_seed=seed,
+                foregrounds_per_item=(min_fgs_pr_item, max_fgs_pr_item),
+                backgrounds_per_item=(min_bgs_pr_item, max_bgs_pr_item),
+                trig_to_control_ratio=trig_to_ctrl,
             ),
-            split=split,
+            show_progress=True,
             base_dir=target_base_dir,
         )
 

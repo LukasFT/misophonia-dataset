@@ -1,26 +1,46 @@
+import concurrent.futures
 import itertools
 import json
+import os
 import uuid
 import warnings
-from collections.abc import Generator, Iterable
 from pathlib import Path
-from typing import Iterator
 
 import numpy as np
 import soundfile as sf
+from tqdm import tqdm
 
-from .interface import GlobalMixingParams, MisophoniaDataset, MisophoniaItem, SourceData, SourceDataItem, SplitT
+from .interface import (
+    GlobalMixingParams,
+    MisophoniaDataset,
+    MisophoniaDatasetSplit,
+    MisophoniaItem,
+    SourceData,
+    SourceDataItem,
+    SplitT,
+)
 
 
 class GeneratedMisophoniaDataset(MisophoniaDataset):
     def __init__(self, source_data: list[SourceData]) -> None:
         self._source_data = source_data
-        # each source data has a metadata dataframe
-        # need to split each df based on "split" and merge into train_df, val_df, test_df
+        self._items_by_split: dict[SplitT, list[SourceDataItem]] | None = None
 
-        self._items_by_split: dict[SplitT, list[SourceDataItem]] | None = None  # Evaluate lazily
+    def prepare(self) -> None:
+        if self._items_by_split is not None:
+            return
 
-    def iterate(
+        assert all(ds.is_downloaded() for ds in self._source_data), "All source data must be downloaded."
+
+        all_source_data = tuple(itertools.chain.from_iterable(ds.get_metadata() for ds in self._source_data))
+
+        items_by_split: dict[SplitT, list[SourceDataItem]] = {"train": [], "val": [], "test": []}
+        for item in all_source_data:
+            items_by_split[item.split].append(item)
+
+        self._items_by_split = items_by_split
+
+    def get_split(
         self,
         split: SplitT,
         *,
@@ -29,8 +49,9 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
         backgrounds_per_item: tuple[int, int] = (1, 3),
         trig_to_control_ratio: float = 0.5,
         random_seed: int = 42,
-    ) -> Generator[MisophoniaItem, None, None]:
-        from .mixing import binaural_mix, prepare_track_specs  # Import it here since it requires binamix to be setup
+        n_paired_sounds: int = 0,  # TODO
+    ) -> MisophoniaDatasetSplit:
+        from .mixing import binaural_mix, prepare_track_specs
 
         if split == "test":
             warnings.warn(
@@ -41,40 +62,82 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
             )
 
         self.prepare()
+        all_items: list[SourceDataItem] = self._items_by_split[split]
 
-        items: list[SourceDataItem] = self._items_by_split[split]
+        all_trig_items = [it for it in all_items if it.label_type == "trigger"]
+        all_ctrl_items = [it for it in all_items if it.label_type == "control"]
+        all_bg_items = [it for it in all_items if it.label_type == "background"]
 
-        rng = np.random.default_rng(seed=random_seed)
+        def _prepare_samples():  # noqa: ANN202
+            """Prepare sample indices and random seeds for dataset generation."""
+            rng_plan = np.random.default_rng(seed=random_seed)
 
-        def _sample_full_then_restart(subset: list[SourceDataItem]) -> Iterator[SourceDataItem]:
-            rand_state = random_seed
-            while True:
-                samples = subset.copy()
-                rng.shuffle(samples)
-                rand_state += 1
-                for sample in samples:
-                    yield sample
+            def make_cycle(n: int):  # noqa: ANN202
+                """Yield indices 0..n-1 in random order, then reshuffle and repeat."""
+                order = np.arange(n)
+                while True:
+                    rng_plan.shuffle(order)
+                    for idx in order:
+                        yield int(idx)
 
-        trig_sampler = _sample_full_then_restart([item for item in items if item.label_type == "trigger"])
-        control_sampler = _sample_full_then_restart([item for item in items if item.label_type == "control"])
-        background_sampler = _sample_full_then_restart([item for item in items if item.label_type == "background"])
+            trig_cycle = make_cycle(len(all_trig_items)) if all_trig_items else None
+            ctrl_cycle = make_cycle(len(all_ctrl_items)) if all_ctrl_items else None
+            bg_cycle = make_cycle(len(all_bg_items))
 
-        for _ in range(num_samples):
-            num_foregrounds = rng.integers(foregrounds_per_item[0], foregrounds_per_item[1] + 1)
-            num_backgrounds = rng.integers(backgrounds_per_item[0], backgrounds_per_item[1] + 1)
+            is_trig_for_item: list[bool] = []
+            fg_indices_for_item: list[list[int]] = []
+            bg_indices_for_item: list[list[int]] = []
+            seeds_for_item = rng_plan.integers(0, 2**32 - 1, size=num_samples, dtype=np.uint32)
 
-            is_trig = rng.random() < trig_to_control_ratio
-            foreground_samples = trig_sampler if is_trig else control_sampler
+            for _ in range(num_samples):
+                num_fg = int(rng_plan.integers(foregrounds_per_item[0], foregrounds_per_item[1] + 1))
+                num_bg = int(rng_plan.integers(backgrounds_per_item[0], backgrounds_per_item[1] + 1))
 
-            foreground_items = [next(foreground_samples) for _ in range(num_foregrounds)]
-            background_items = [next(background_sampler) for _ in range(num_backgrounds)]
+                # Decide trigger vs control
+                is_trig = bool(rng_plan.random() < trig_to_control_ratio)
+                if is_trig and not all_trig_items:
+                    # fall back to control if no trig items
+                    is_trig = False
+                if (not is_trig) and not all_ctrl_items:
+                    # fall back to trigger if no control items
+                    is_trig = True
 
-            foreground_categories = tuple(set(itertools.chain.from_iterable(item.labels for item in foreground_items)))
-            background_categories = tuple(set(itertools.chain.from_iterable(item.labels for item in background_items)))
+                is_trig_for_item.append(is_trig)
 
-            global_params = GlobalMixingParams(_rng=rng)  # Initilaze global mixing params at random
+                # Foreground indices from the appropriate cycle
+                if is_trig:
+                    if trig_cycle is None:
+                        raise RuntimeError("No trigger items but attempted to sample trigger foregrounds.")
+                    fg_cycle = trig_cycle
+                else:
+                    if ctrl_cycle is None:
+                        raise RuntimeError("No control items but attempted to sample control foregrounds.")
+                    fg_cycle = ctrl_cycle
 
-            # Load and pre-process audio and initialize SourceTrack params
+                fg_indices = [next(fg_cycle) for _ in range(num_fg)]
+                bg_indices = [next(bg_cycle) for _ in range(num_bg)]
+
+                fg_indices_for_item.append(fg_indices)
+                bg_indices_for_item.append(bg_indices)
+            return is_trig_for_item, fg_indices_for_item, bg_indices_for_item, seeds_for_item
+
+        is_trig_for_item, fg_indices_for_item, bg_indices_for_item, seeds_for_item = _prepare_samples()
+
+        def _generate_one(index: int) -> MisophoniaItem:
+            rng = np.random.default_rng(int(seeds_for_item[index]))
+            is_trig = is_trig_for_item[index]
+            fg_idxs = fg_indices_for_item[index]
+            bg_idxs = bg_indices_for_item[index]
+
+            fg_pool = all_trig_items if is_trig else all_ctrl_items
+            foreground_items = [fg_pool[j] for j in fg_idxs]
+            background_items = [all_bg_items[j] for j in bg_idxs]
+
+            foreground_categories = tuple(set(itertools.chain.from_iterable(it.labels for it in foreground_items)))
+            background_categories = tuple(set(itertools.chain.from_iterable(it.labels for it in background_items)))
+
+            global_params = GlobalMixingParams(_rng=rng)
+
             foreground_specs, background_specs = prepare_track_specs(
                 foreground_items,
                 background_items,
@@ -82,7 +145,7 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
                 bg_track_options={"level": 0.7},  # TODO: Why this?
                 rng=rng,
             )
-            foreground_tracks, _ = tuple(zip(*foreground_specs))  # Take only the first element of each tuple
+            foreground_tracks, _ = tuple(zip(*foreground_specs))
             background_tracks, _ = tuple(zip(*background_specs))
 
             mix, ground_truth = binaural_mix(
@@ -92,7 +155,7 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
                 is_trig=is_trig,
             )
 
-            yield MisophoniaItem(
+            return MisophoniaItem(
                 split=split,
                 is_trigger=is_trig,
                 foreground_categories=foreground_categories,
@@ -105,27 +168,16 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
                 backgrounds=background_tracks,
             )
 
-    def prepare(self) -> None:
-        if self._items_by_split is not None:
-            return
-
-        assert all(ds.is_downloaded() for ds in self._source_data), "All source data must be downloaded."
-
-        # Get a list of all source data items from all source datasets
-        all_source_data = tuple(itertools.chain.from_iterable([ds.get_metadata() for ds in self._source_data]))
-
-        # Split source data items by split
-        items_by_split: dict[SplitT, list[SourceDataItem]] = {"train": [], "val": [], "test": []}
-        for item in all_source_data:
-            items_by_split[item.split].append(item)
-
-        self._items_by_split = items_by_split
+        return MisophoniaDatasetSplit(
+            split=split,
+            num_samples=num_samples,
+            get_one=_generate_one,
+        )
 
 
 class PremadeMisophoniaDataset(MisophoniaDataset):
     def __init__(self, base_dir: Path | str) -> None:
         self.base_dir = Path(base_dir)
-
         self._items_by_split: dict[SplitT, list[MisophoniaItem]] | None = None
 
     def prepare(self) -> None:
@@ -134,20 +186,16 @@ class PremadeMisophoniaDataset(MisophoniaDataset):
 
         self._items_by_split = {"train": [], "val": [], "test": []}
 
-        cwd = Path.cwd()
-
         for split in self._items_by_split.keys():
-            split_dir = (self.base_dir / split).resolve().relative_to(cwd)
+            split_dir = self.base_dir / split
             metadata_file = split_dir / "metadata.jsonl"
-
             if not metadata_file.exists():
-                # Allow missing splits (e.g. only train/val present)
-                self._items_by_split[split] = None
                 continue
 
             with metadata_file.open("r", encoding="utf-8") as f:
                 for line in f:
-                    if line == "":
+                    line = line.strip()
+                    if not line:
                         continue
 
                     obj = json.loads(line)
@@ -156,23 +204,33 @@ class PremadeMisophoniaDataset(MisophoniaDataset):
                     item = MisophoniaItem.model_validate(obj)
                     self._items_by_split[split].append(item)
 
-    def iterate(self, split: SplitT) -> Iterable[MisophoniaItem]:
+    def get_split(
+        self,
+        split: SplitT,
+    ) -> MisophoniaDatasetSplit:
         self.prepare()
+        items = self._items_by_split[split]
 
-        if self._items_by_split[split] is None:
+        if items is None or len(items) == 0:
             raise ValueError(f"No data available for split '{split}'")
 
-        for item in self._items_by_split[split]:
-            yield item
+        return MisophoniaDatasetSplit(
+            split=split,
+            num_samples=len(items),
+            get_one=items.__getitem__,  # Get the pre-computed item directly from the list
+        )
 
 
 def save_miso_dataset(
-    items: Iterable[MisophoniaItem],
-    split: SplitT,
+    split_data: MisophoniaDatasetSplit,
     *,
     base_dir: Path | None = None,
+    n_workers: int | None = None,
+    show_progress: bool = False,
 ) -> None:
     base_dir = base_dir if base_dir is not None else Path(__file__).parent.parent / "data" / "mixed"
+
+    split = split_data.split
 
     split_dir = base_dir / split
     mix_dir = split_dir / "mixes"
@@ -185,31 +243,45 @@ def save_miso_dataset(
     mix_dir.mkdir(parents=True)
     gt_dir.mkdir(parents=True)
 
-    with metadata_file.open("w", buffering=1) as metadata_f:  # buffer=1 means flush on newline
-        for item in items:
-            mix_id = str(uuid.uuid4())  # Make unique ID for each mix
+    def _generate_and_save(i: int) -> str:
+        item: MisophoniaItem = split_data[i]  # Heavy work (mixing + I/O) happens here
 
-            mix_file = mix_dir / f"{mix_id}.wav"
+        mix_id = str(uuid.uuid4())
+
+        mix_file = mix_dir / f"{mix_id}.wav"
+        sf.write(
+            mix_file,
+            np.transpose(item.mix),
+            samplerate=item.global_mixing_params.sample_rate,
+            subtype="PCM_24",
+        )
+
+        gt_file = None
+        if item.ground_truth is not None:
+            gt_file = gt_dir / f"{mix_id}.wav"
             sf.write(
-                mix_file, np.transpose(item.mix), samplerate=item.global_mixing_params.sample_rate, subtype="PCM_24"
+                gt_file,
+                np.transpose(item.ground_truth),
+                samplerate=item.global_mixing_params.sample_rate,
+                subtype="PCM_24",
             )
 
-            gt_file = None
-            if item.ground_truth is not None:
-                gt_file = gt_dir / f"{mix_id}.wav"
-                sf.write(
-                    gt_file,
-                    np.transpose(item.ground_truth),
-                    samplerate=item.global_mixing_params.sample_rate,
-                    subtype="PCM_24",
-                )
+        item_with_paths = item.model_copy(
+            update={
+                "uuid": mix_id,
+                "mix": mix_file.relative_to(split_dir),
+                "ground_truth": gt_file.relative_to(split_dir) if gt_file is not None else None,
+            }
+        )
+        return item_with_paths.model_dump_json(round_trip=True)
 
-            item = item.model_copy(
-                update={
-                    "uuid": mix_id,
-                    "mix": mix_file.relative_to(split_dir),
-                    "ground_truth": gt_file.relative_to(split_dir) if gt_file is not None else None,
-                }
-            )
-            row = item.model_dump_json(round_trip=True)
-            metadata_f.write(row + "\n")
+    n_workers = n_workers if n_workers is not None else (os.cpu_count() or 1)
+    size = len(split_data)
+
+    with metadata_file.open("w", buffering=1, encoding="utf-8") as metadata_f:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as executor:
+            results = executor.map(_generate_and_save, range(size))
+            if show_progress:
+                results = tqdm(results, total=size, desc=f"Saving {split} items")
+            for row in results:
+                metadata_f.write(row + "\n")
