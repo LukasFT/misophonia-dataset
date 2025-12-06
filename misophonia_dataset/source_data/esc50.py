@@ -1,9 +1,10 @@
 import json
+from collections.abc import Collection
 from pathlib import Path
 
 import pandas as pd
 
-from ..interface import License, MappingT, SourceData, SourceMetaData, get_default_data_dir
+from ..interface import License, MappingT, SourceData, SourceDataItem, get_default_data_dir
 from ._downloading import download_and_unzip, is_unzipped
 from ._freesound_license import generate_freesound_licenses
 from ._splitting import is_validated_ids, train_valid_test_split
@@ -51,7 +52,7 @@ class Esc50Dataset(SourceData):
             rename_extracted_dir=self._base_unzipped_dir.name,
         )
 
-    def get_metadata(self) -> SourceMetaData:
+    def get_metadata(self) -> Collection[SourceDataItem]:  # TODO: Change to not a dataframe
         """
         Get standardized metadata for ESC50 dataset.
         """
@@ -65,7 +66,8 @@ class Esc50Dataset(SourceData):
         meta["source_dataset"] = "ESC50"
 
         base_audio_dir = (self._base_unzipped_dir / "audio").expanduser().resolve()
-        meta["file_path"] = meta["esc50_filename"].apply(lambda x: str(base_audio_dir / x))
+        cwd = Path.cwd()
+        meta["file_path"] = meta["esc50_filename"].apply(lambda x: (base_audio_dir / x).relative_to(cwd))
 
         meta["labels"] = meta["esc50_category"].apply(lambda x: self.mapping.get(str(x), {}).get("foams_mapping", None))
 
@@ -103,7 +105,9 @@ class Esc50Dataset(SourceData):
         meta["validated_by"] = is_validated_ids(meta["freesound_id"])
         meta["split"] = train_valid_test_split(meta["freesound_id"], validated_by=meta["validated_by"])
 
-        self._meta = SourceMetaData.validate(meta)
+        self._meta = [
+            SourceDataItem(**row) for row in meta.to_dict(orient="records")
+        ]  # Could probably be done more efficiently without pandas
         return self._meta
 
     def delete(self) -> None:

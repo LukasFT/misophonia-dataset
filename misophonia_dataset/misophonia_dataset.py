@@ -1,38 +1,13 @@
-import json
+import itertools
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from pathlib import Path
-from typing import Iterator, List
+from typing import Iterator
 
 import numpy as np
-import pandas as pd
-import pydantic
 import soundfile as sf
 
-from .interface import License, SourceData, SplitT
-from .mixing import MixingParams
-
-
-class MisophoniaItem(pydantic.BaseModel):
-    split: SplitT
-
-    mixing_params: MixingParams
-
-    mix: np.ndarray
-    ground_truth: np.ndarray | None
-
-    fg_path: Path
-    bg_path: Path
-    fg_labels: List[str]
-    bg_labels: List[str]
-
-    fg_freesound_id: int | None
-    bg_freesound_id: int | None
-
-    fg_licensing: tuple[License, ...] | None = None
-    bg_licensing: tuple[License, ...] | None = None
-
-    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+from .interface import GlobalMixingParams, MisophoniaItem, SourceData, SourceDataItem, SplitT
 
 
 class MisophoniaDataset:
@@ -41,121 +16,147 @@ class MisophoniaDataset:
         # each source data has a metadata dataframe
         # need to split each df based on "split" and merge into train_df, val_df, test_df
 
-        self._dfs = self._get_split_dfs()
-
-    def _get_split_dfs(self) -> list[pd.DataFrame]:
-        assert all(ds.is_downloaded() for ds in self._source_data), "All source data must be downloaded."
-        all_source_data = pd.concat([ds.get_metadata() for ds in self._source_data], ignore_index=True)
-
-        df_by_split = {}
-        for split in ["train", "val", "test"]:
-            df_by_split[split] = all_source_data[all_source_data["split"] == split]
-
-        assert sum(len(df) for df in df_by_split.values()) == len(all_source_data), "Some samples are missing a split."
-        return df_by_split
+        self._items_by_split: dict[SplitT, list[SourceDataItem]] | None = None  # Evaluate lazily
 
     def generate(
         self,
         num_samples: int,
         *,
         split: SplitT,
-        random_state: int = 42,
+        foregrounds_per_item: tuple[int, int] = (1, 1),
+        backgrounds_per_item: tuple[int, int] = (1, 3),
+        trig_to_control_ratio: float = 0.5,
+        random_seed: int = 42,
     ) -> Generator[MisophoniaItem, None, None]:
-        from .mixing import binaural_mix  # Import it here since it requires binamix to be setup
+        from .mixing import binaural_mix, prepare_track_specs  # Import it here since it requires binamix to be setup
 
-        meta = self._dfs[split]
+        if self._items_by_split is None:
+            self.prepare_source_data()
 
-        def _sample_full_then_restart(df: pd.DataFrame, n: int) -> Iterator[pd.DataFrame]:
-            rand_state = random_state
-            samples = df.sample(n=min(n, len(df)), random_state=rand_state)
-            for i in range(n):
-                if i > 0 and i % len(df) == 0:
-                    rand_state += 1
-                    samples = df.sample(n=min(n, len(df)), random_state=rand_state)
-                yield samples.iloc[i % len(df)]
+        items: list[SourceDataItem] = self._items_by_split[split]
 
-        trig_control_df = meta[meta["label_type"].isin(["trigger", "control"])]
-        background_df = meta[meta["label_type"] == "background"]
-        trig_control_samples = _sample_full_then_restart(trig_control_df, num_samples)
-        background_samples = _sample_full_then_restart(background_df, num_samples)
+        rng = np.random.default_rng(seed=random_seed)
 
-        for trig_control_row, bg_row in zip(trig_control_samples, background_samples):
-            params = MixingParams()  # Intialize random mixing params
+        def _sample_full_then_restart(subset: list[SourceDataItem]) -> Iterator[SourceDataItem]:
+            rand_state = random_seed
+            while True:
+                samples = subset.copy()
+                rng.shuffle(samples)
+                rand_state += 1
+                for sample in samples:
+                    yield sample
 
-            is_trig = trig_control_row["label_type"] == "trigger"
+        trig_sampler = _sample_full_then_restart([item for item in items if item.label_type == "trigger"])
+        control_sampler = _sample_full_then_restart([item for item in items if item.label_type == "control"])
+        background_sampler = _sample_full_then_restart([item for item in items if item.label_type == "background"])
 
-            mix, ground_truth, _ = binaural_mix(
-                fg_path=trig_control_row["file_path"],
-                bg_path=bg_row["file_path"],
-                params=params,
+        for _ in range(num_samples):
+            num_foregrounds = rng.integers(foregrounds_per_item[0], foregrounds_per_item[1] + 1)
+            num_backgrounds = rng.integers(backgrounds_per_item[0], backgrounds_per_item[1] + 1)
+
+            is_trig = rng.random() < trig_to_control_ratio
+            foreground_samples = trig_sampler if is_trig else control_sampler
+
+            foreground_items = [next(foreground_samples) for _ in range(num_foregrounds)]
+            background_items = [next(background_sampler) for _ in range(num_backgrounds)]
+
+            foreground_categories = tuple(set(itertools.chain.from_iterable(item.labels for item in foreground_items)))
+            background_categories = tuple(set(itertools.chain.from_iterable(item.labels for item in background_items)))
+
+            global_params = GlobalMixingParams(_rng=rng)  # Initilaze global mixing params at random
+
+            # Load and pre-process audio and initialize SourceTrack params
+            foreground_specs, background_specs = prepare_track_specs(
+                foreground_items,
+                background_items,
+                global_params=global_params,
+                bg_track_options={"level": 0.7},  # TODO: Why this?
+                rng=rng,
+            )
+            foreground_tracks, _ = tuple(zip(*foreground_specs))  # Take only the first element of each tuple
+            background_tracks, _ = tuple(zip(*background_specs))
+
+            mix, ground_truth = binaural_mix(
+                fg_tracks=foreground_specs,
+                bg_tracks=background_specs,
+                global_params=global_params,
                 is_trig=is_trig,
             )
 
-            miso_item = MisophoniaItem(
+            yield MisophoniaItem(
                 split=split,
+                is_trigger=is_trig,
+                foreground_categories=foreground_categories,
+                background_categories=background_categories,
                 mix=mix,
                 ground_truth=ground_truth,
-                mixing_params=params,
-                is_trig=is_trig,
-                fg_path=trig_control_row["file_path"],
-                bg_path=bg_row["file_path"],
-                fg_labels=trig_control_row["labels"],
-                bg_labels=bg_row["labels"],
-                fg_freesound_id=trig_control_row["freesound_id"],
-                bg_freesound_id=bg_row["freesound_id"],
-                fg_licensing=trig_control_row["licensing"],
-                bg_licensing=bg_row["licensing"],
+                length=mix.shape[1],
+                global_mixing_params=global_params,
+                foregrounds=foreground_tracks,
+                backgrounds=background_tracks,
             )
 
-            yield miso_item
+    def prepare_source_data(self) -> None:
+        if self._items_by_split is not None:
+            return
+
+        assert all(ds.is_downloaded() for ds in self._source_data), "All source data must be downloaded."
+
+        # Get a list of all source data items from all source datasets
+        all_source_data = tuple(itertools.chain.from_iterable([ds.get_metadata() for ds in self._source_data]))
+
+        # Split source data items by split
+        items_by_split: dict[SplitT, list[SourceDataItem]] = {"train": [], "val": [], "test": []}
+        for item in all_source_data:
+            items_by_split[item.split].append(item)
+
+        self._items_by_split = items_by_split
 
 
 def save_miso_dataset(
-    generator: Generator[MisophoniaItem, None, None],
+    items: Iterable[MisophoniaItem],
     split: SplitT,
     *,
     base_dir: Path | None = None,
-) -> list[dict]:
-    rows = []
-    license_rows = []  # TODO: implement license saving
-
+) -> None:
     base_dir = base_dir if base_dir is not None else Path(__file__).parent.parent / "data" / "mixed"
 
     split_dir = base_dir / split
     mix_dir = split_dir / "mixes"
     gt_dir = split_dir / "ground_truths"
-    metadata_file = split_dir / "metadata.json"
+    metadata_file = split_dir / "metadata.jsonl"
 
-    if mix_dir.exists() or gt_dir.exists():
-        raise FileExistsError(f"Directory for split '{split}' already exists at {base_dir / split}")
+    if split_dir.exists():
+        raise FileExistsError(f"Directory for split '{split}' already exists at {split_dir}")
 
     mix_dir.mkdir(parents=True)
     gt_dir.mkdir(parents=True)
 
-    for item in generator:
-        mix_id = str(uuid.uuid4())  # Make unique ID for each mix
+    with metadata_file.open("w", buffering=1) as metadata_f:  # buffer=1 means flush on newline
+        for item in items:
+            mix_id = str(uuid.uuid4())  # Make unique ID for each mix
 
-        mix_file = mix_dir / f"{mix_id}.wav"
-        sf.write(mix_file, np.transpose(item.mix), samplerate=item.mixing_params.sr, subtype="PCM_24")
+            mix_file = mix_dir / f"{mix_id}.wav"
+            sf.write(
+                mix_file, np.transpose(item.mix), samplerate=item.global_mixing_params.sample_rate, subtype="PCM_24"
+            )
 
-        if item.ground_truth is not None:
-            gt_file = gt_dir / f"{mix_id}.wav"
-            sf.write(gt_file, np.transpose(item.ground_truth), samplerate=item.mixing_params.sr, subtype="PCM_24")
+            gt_file = None
+            if item.ground_truth is not None:
+                gt_file = gt_dir / f"{mix_id}.wav"
+                sf.write(
+                    gt_file,
+                    np.transpose(item.ground_truth),
+                    samplerate=item.global_mixing_params.sample_rate,
+                    subtype="PCM_24",
+                )
 
-        row = {
-            "mix_id": mix_id,
-            "split": item.split,
-            "is_trig": item.is_trig,
-            "fg_labels": item.fg_labels,
-            "bg_labels": item.bg_labels,
-            "fg_freesound_id": item.fg_freesound_id,
-            "bg_freesound_id": item.bg_freesound_id,
-            "mixing_params": item.mixing_params.model_dump(),
-        }
-        # TODO: handle licenses
-        rows.append(row)
-
-    with metadata_file.open("w") as f:
-        json.dump(rows, f, indent=4)
-
-    return rows
+            item = item.model_copy(
+                update={
+                    "uuid": mix_id,
+                    "mix": mix_file.relative_to(split_dir),
+                    "ground_truth": gt_file.relative_to(split_dir) if gt_file is not None else None,
+                }
+            )
+            row = item.model_dump_json(round_trip=True)
+            metadata_f.write(row + "\n")

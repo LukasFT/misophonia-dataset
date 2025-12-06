@@ -1,3 +1,5 @@
+import contextlib
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -64,6 +66,13 @@ def download_sadie() -> None:
         rename_extracted_dir="Database-Master_V2-2",  # Must  be named exactly "Database-Master_V1-4" to be found by Binamix (even if that issss not the version)
         delete_zip=True,
     )
+
+
+def custom_mix_tracks_binaural(**kwargs) -> None:  # noqa: ANN003
+    from binamix.sadie_utilities import mix_tracks_binaural  # type: ignore
+
+    with contextlib.redirect_stdout(open(os.devnull, "w")):  # Silence their printing
+        return mix_tracks_binaural(**kwargs)
 
 
 if __name__ == "__main__":
