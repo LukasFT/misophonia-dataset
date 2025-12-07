@@ -48,6 +48,9 @@ def generate(
         typer.Option("--add-experimental-pairs", help="Add pairs used for the experimental validation of the dataset"),
     ] = False,
 ) -> None:
+    if add_experimental_pairs and split != "test":
+        raise ValueError("Experimental pairs can only be added to the 'test' split.")
+
     datasets = _get_default_datasets() if datasets is None or len(datasets) == 0 else datasets
     datasets = tuple(_get_dataset_from_name(name, base_dir=source_base_dir) for name in datasets)
 
@@ -72,8 +75,8 @@ def generate(
     )
 
     if add_experimental_pairs:
-        eliot.log_message(f"Adding experimental pairs to {split} split", level="info")
-        add_experimental_pairs_to_dataset(saved_generated, split=split, seed=seed)
+        eliot.log_message("Adding experimental pairs to test split", level="info")
+        add_experimental_pairs_to_dataset(saved_generated, seed=seed)
 
 
 @app.command()
