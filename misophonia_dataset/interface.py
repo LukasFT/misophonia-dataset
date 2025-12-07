@@ -4,6 +4,7 @@ from collections.abc import Callable, Collection, Iterator, Sequence
 from pathlib import Path
 from typing import Literal, TypeAlias
 
+import librosa
 import numpy as np
 import pydantic
 import soundfile as sf
@@ -49,13 +50,17 @@ class SourceDataItem(BaseModel):
     """
     validated_by: tuple[str, ...] | None = None
     """List of names for studies (e.g., FOAMS) that have validated this data point. If not any, None. Only applicable for trigger sounds."""
-    licensing: tuple[License, ...] | None = None
+    licensing: tuple[License, ...] | None = None  # Maybe make it into a sound_license and dataset_license
     """Licensing information. A collection of dictionaries (see LicenceT above)."""
 
     model_config = pydantic.ConfigDict(
         # Allow extra fields since different datasets have different metadata fields. Extra fields should be prefixed by the dataset name to avoid conflicts.
         extra="allow",
     )
+
+    def load_audio(self, *, sample_rate: int | None = None) -> tuple[np.ndarray, int]:
+        # TODO: Why are we using librosa.load here instead of soundfile.read?
+        return librosa.load(self.file_path, sr=sample_rate, mono=True)
 
 
 class SourceTrack(BaseModel):
@@ -185,6 +190,12 @@ class MisophoniaItem(BaseModel):
 
     mix_licensing: tuple[License, ...] = DEFAULT_MIXED_DATASET_LICENSE
 
+    # Experimental information:
+    paired_uuid: str | None = None
+    """UUID of the paired version of this item, if any."""
+    experimental_discomfort_level: float | None = pydantic.Field(None, ge=0, le=5)
+    """Obtained average discomfort level from human experimental evaluation, on a Likert scale from 0 to 5."""
+
     @property
     def trigger_categories(self) -> tuple[str, ...] | None:
         return self.foreground_categories if self.is_trigger else None
@@ -208,6 +219,25 @@ class MisophoniaItem(BaseModel):
         if not self.is_trigger and self.ground_truth is not None:
             raise ValueError("If is_trigger is False, ground_truth must be None.")
         return self
+
+    # auto-compute categories if none given
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def auto_compute_categories(cls, values: dict) -> dict:
+        if "foreground_categories" not in values or values["foreground_categories"] is None:
+            if "foregrounds" not in values:
+                raise ValueError("Cannot auto-compute foreground_categories without foregrounds.")
+            values["foreground_categories"] = tuple(
+                set(itertools.chain.from_iterable(it.source_item.labels for it in values["foregrounds"]))
+            )
+        if "background_categories" not in values or values["background_categories"] is None:
+            if "backgrounds" not in values:
+                raise ValueError("Cannot auto-compute background_categories without backgrounds.")
+            values["background_categories"] = tuple(
+                set(itertools.chain.from_iterable(it.source_item.labels for it in values["backgrounds"]))
+            )
+
+        return values
 
     def get_mix_audio(self) -> np.ndarray:
         if isinstance(self.mix, Path):

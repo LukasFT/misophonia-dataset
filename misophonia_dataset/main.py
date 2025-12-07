@@ -5,7 +5,6 @@ Usage:
 """
 
 # noqa: ANN201
-import shutil
 from pathlib import Path
 
 import eliot
@@ -16,7 +15,7 @@ from typing_extensions import Annotated
 from ._binamix import download_sadie
 from ._log import setup_print_logging
 from .interface import SourceData, get_default_data_dir
-from .misophonia_dataset import GeneratedMisophoniaDataset, save_miso_dataset
+from .misophonia_dataset import GeneratedMisophoniaDataset, PremadeMisophoniaDataset, add_experimental_pairs_to_dataset
 from .source_data.esc50 import Esc50Dataset
 from .source_data.foams import FoamsDataset
 from .source_data.fsd50k import Fsd50kDataset
@@ -28,14 +27,15 @@ app = typer.Typer(help="Misophonia Dataset CLI")
 
 @app.command()
 def generate(
-    target_base_dir: Annotated[Path, typer.Argument(help="Directory to save generated dataset")],
-    split: Annotated[list[str], typer.Argument(help="Dataset split to generate")],
+    name: Annotated[Path, typer.Argument(help="Name of the generated dataset")],
+    split: Annotated[str, typer.Argument(help="Dataset split to generate")],
     *,
     replace: Annotated[bool, typer.Option("--replace", "-f", help="Replace existing directory if it exists")] = False,
     datasets: Annotated[
         list[str], typer.Option("--source-dataset", "-d", help="Name(s) of source datasets use.")
     ] = None,
-    source_base_dir: Annotated[Path, typer.Option("--source-dir", help="Directory to save datasets")] = None,
+    source_base_dir: Annotated[Path, typer.Option("--source-dir", help="Directory to load datasets from")] = None,
+    base_save_dir: Annotated[Path, typer.Option("--save-dir", "-s", help="Directory to save dataset to")] = None,
     num_samples: Annotated[int, typer.Option("--num-samples", "-n", help="Number of samples to generate")] = 1,
     trig_to_ctrl: Annotated[float, typer.Option("--trig-to-ctrl", help="Ratio of trigger to control sounds")] = 0.5,
     min_fgs_pr_item: Annotated[int, typer.Option("--min-fgs-pr-item", help="Minimum foregrounds per item")] = 1,
@@ -43,24 +43,22 @@ def generate(
     min_bgs_pr_item: Annotated[int, typer.Option("--min-bgs-pr-item", help="Minimum backgrounds per item")] = 1,
     max_bgs_pr_item: Annotated[int, typer.Option("--max-bgs-pr-item", help="Maximum backgrounds per item")] = 3,
     seed: Annotated[int, typer.Option("--random-seed", "-r", help="Random seed for sampling")] = 42,
+    add_experimental_pairs: Annotated[
+        bool,
+        typer.Option("--add-experimental-pairs", help="Add pairs used for the experimental validation of the dataset"),
+    ] = False,
 ) -> None:
     datasets = _get_default_datasets() if datasets is None or len(datasets) == 0 else datasets
     datasets = tuple(_get_dataset_from_name(name, base_dir=source_base_dir) for name in datasets)
 
     misophonia_dataset = GeneratedMisophoniaDataset(source_data=datasets)
 
-    if target_base_dir.exists():
-        if replace:
-            eliot.log_message(f"Replacing existing directory at {target_base_dir}", level="warning")
-            shutil.rmtree(target_base_dir)
-        else:
-            raise FileExistsError(f"Target directory {target_base_dir} already exists.")
-
     eliot.log_message("Preparing source data", level="info")
     misophonia_dataset.prepare()
 
     eliot.log_message(f"Generating and saving {split} items", level="info")
-    save_miso_dataset(
+    saved_generated = PremadeMisophoniaDataset(name=name, base_save_dir=base_save_dir)
+    saved_generated.save_split(
         misophonia_dataset.get_split(
             split=split,
             num_samples=num_samples,
@@ -69,9 +67,13 @@ def generate(
             backgrounds_per_item=(min_bgs_pr_item, max_bgs_pr_item),
             trig_to_control_ratio=trig_to_ctrl,
         ),
+        if_exists="replace" if replace else "error",
         show_progress=True,
-        base_dir=target_base_dir,
     )
+
+    if add_experimental_pairs:
+        eliot.log_message(f"Adding experimental pairs to {split} split", level="info")
+        add_experimental_pairs_to_dataset(saved_generated, split=split, seed=seed)
 
 
 @app.command()
