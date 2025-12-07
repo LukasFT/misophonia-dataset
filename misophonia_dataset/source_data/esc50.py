@@ -16,6 +16,12 @@ class Esc50Dataset(SourceData):
     ESC50 is only used for trigger sounds, so the isTrig of the metadata column will have only 1s.
     """
 
+    dataset_license = License(
+        license_url="https://creativecommons.org/licenses/by-nc/3.0/",
+        attribution_name="K. J. Piczak",
+        attribution_url="http://dx.doi.org/10.1145/2733373.2806390",
+    )
+
     def __init__(self, *, save_dir: Path | None = None, mapping: None | MappingT = None) -> None:
         if mapping is None:
             with (Path(__file__).parent / "esc50_mapping.json").open("r") as f:
@@ -91,16 +97,8 @@ class Esc50Dataset(SourceData):
         #         ),
         #     ),
         # )
-        meta["licensing"] = generate_freesound_licenses(
-            meta["freesound_id"],
-            base_licenses=(
-                License(
-                    license_url="https://creativecommons.org/licenses/by-nc/3.0/",
-                    attribution_name="K. J. Piczak",
-                    attribution_url="http://dx.doi.org/10.1145/2733373.2806390",
-                ),
-            ),
-        )
+        meta["sound_license"] = generate_freesound_licenses(meta["freesound_id"])
+        meta["dataset_license"] = (self.dataset_license,) * len(meta)
 
         meta["validated_by"] = is_validated_ids(meta["freesound_id"])
         meta["split"] = train_valid_test_split(meta["freesound_id"], validated_by=meta["validated_by"])

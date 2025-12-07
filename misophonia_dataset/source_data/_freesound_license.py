@@ -3,7 +3,6 @@
 import json
 import os
 import time
-from collections.abc import Collection
 from pathlib import Path
 
 import eliot
@@ -23,13 +22,11 @@ def get_freesound_licenses() -> pd.DataFrame:
 
 def generate_freesound_licenses(
     freesound_ids: pd.Series,
-    base_licenses: Collection[License] = (),
     retries: int = 10,
 ) -> pd.Series:
     try:
         return _generate_freesound_licenses(
             freesound_ids=freesound_ids,
-            base_licenses=base_licenses,
         )
     except requests.exceptions.RequestException as e:
         if retries > 0:
@@ -41,7 +38,6 @@ def generate_freesound_licenses(
             time.sleep(backoff_time)
             return generate_freesound_licenses(
                 freesound_ids=freesound_ids,
-                base_licenses=base_licenses,
                 retries=retries - 1,
             )
         else:
@@ -50,7 +46,6 @@ def generate_freesound_licenses(
 
 def _generate_freesound_licenses(
     freesound_ids: pd.Series,
-    base_licenses: Collection[License] = (),
 ) -> pd.Series:
     freesound_licenses = get_freesound_licenses()
     updates = {}
@@ -58,7 +53,7 @@ def _generate_freesound_licenses(
     max_api_calls_per_minute = 55
     max_seconds_per_call = 60 / max_api_calls_per_minute
 
-    def _get_dataset_license(freesound_id: int) -> tuple[dict, ...]:
+    def _get_dataset_license(freesound_id: int) -> License:
         nonlocal last_api_call
         lic = freesound_licenses["licensing"].loc[freesound_id] if freesound_id in freesound_licenses.index else None
 
@@ -72,10 +67,7 @@ def _generate_freesound_licenses(
             lic = _get_from_freesound_api(freesound_id)
             updates[freesound_id] = {"licensing": lic}
 
-        return (
-            lic,
-            *base_licenses,
-        )
+        return lic
 
     try:
         return freesound_ids.astype(int).apply(lambda freesound_id: _get_dataset_license(freesound_id))
