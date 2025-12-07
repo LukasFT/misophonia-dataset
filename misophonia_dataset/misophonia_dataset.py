@@ -54,8 +54,7 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
         backgrounds_per_item: tuple[int, int] = (1, 3),
         trig_to_control_ratio: float = 0.5,
         random_seed: int = 42,
-        n_paired_sounds: int = 0,  # TODO
-        min_length: int | None = None,  # TODO
+        # TODO: Maybe there should be some option to make sure the generated sounds are not too short etc.
     ) -> MisophoniaDatasetSplit:
         from .mixing import binaural_mix, prepare_track_specs
 
@@ -90,6 +89,11 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
             ctrl_cycle = make_cycle(len(all_ctrl_items)) if all_ctrl_items else None
             bg_cycle = make_cycle(len(all_bg_items))
 
+            if not trig_cycle and trig_to_control_ratio > 0:
+                raise ValueError("No trigger items but trig_to_control_ratio > 0")
+            if not ctrl_cycle and trig_to_control_ratio < 1:
+                raise ValueError("No control items but trig_to_control_ratio < 1")
+
             is_trig_for_item: list[bool] = []
             fg_indices_for_item: list[list[int]] = []
             bg_indices_for_item: list[list[int]] = []
@@ -101,30 +105,16 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
 
                 # Decide trigger vs control
                 is_trig = bool(rng_plan.random() < trig_to_control_ratio)
-                if is_trig and not all_trig_items:
-                    # fall back to control if no trig items
-                    is_trig = False
-                if (not is_trig) and not all_ctrl_items:
-                    # fall back to trigger if no control items
-                    is_trig = True
-
                 is_trig_for_item.append(is_trig)
 
                 # Foreground indices from the appropriate cycle
-                if is_trig:
-                    if trig_cycle is None:
-                        raise RuntimeError("No trigger items but attempted to sample trigger foregrounds.")
-                    fg_cycle = trig_cycle
-                else:
-                    if ctrl_cycle is None:
-                        raise RuntimeError("No control items but attempted to sample control foregrounds.")
-                    fg_cycle = ctrl_cycle
-
+                fg_cycle = trig_cycle if is_trig else ctrl_cycle
                 fg_indices = [next(fg_cycle) for _ in range(num_fg)]
                 bg_indices = [next(bg_cycle) for _ in range(num_bg)]
 
                 fg_indices_for_item.append(fg_indices)
                 bg_indices_for_item.append(bg_indices)
+
             return is_trig_for_item, fg_indices_for_item, bg_indices_for_item, seeds_for_item
 
         is_trig_for_item, fg_indices_for_item, bg_indices_for_item, seeds_for_item = _prepare_samples()
@@ -203,7 +193,9 @@ class PremadeMisophoniaDataset(MisophoniaDataset):
 
                     obj = json.loads(line)
                     obj["mix"] = split_dir / obj["mix"]
-                    obj["ground_truth"] = split_dir / obj["ground_truth"] if obj["ground_truth"] is not None else None
+                    obj["ground_truth"] = (
+                        split_dir / obj["ground_truth"] if obj.get("ground_truth") is not None else None
+                    )
                     item = MisophoniaItem.model_validate(obj)
                     self._items_by_split[split].append(item)
 
@@ -300,10 +292,11 @@ class PremadeMisophoniaDataset(MisophoniaDataset):
 def add_experimental_pairs_to_dataset(
     original: PremadeMisophoniaDataset,
     *,
-    split: SplitT,
     seed: int = 42,
 ) -> None:
     from .mixing import binaural_mix
+
+    split = "test"
 
     eliot.log_message(f"Adding experimental pairs to dataset split '{split}' with seed {seed}", level="info")
     eliot.log_message(f"Loading base dataset from {original._all_splits_dir}", level="debug")
@@ -345,17 +338,17 @@ def add_experimental_pairs_to_dataset(
         non_foams_in_category = non_foams_sounds[non_foams_sounds["foreground_categories[0]"] == category]
 
         # Sample one from each
-        if len(foams_in_category) == 0:
-            eliot.log_message(f"No FOAMS samples found in category '{category}'", level="warning")
-        else:
-            sample_i = rng.integers(len(foams_in_category))
-            trig_samples.append(foams_in_category.iloc[sample_i]["_model"])
+        if len(foams_in_category) == 0 or len(non_foams_in_category) == 0:
+            eliot.log_message(
+                f"No FOAMS and non-FOAMS samples found in category '{category}' (FOAMS = {len(foams_in_category)}, non-FOAMS = {len(non_foams_in_category)})",
+                level="warning",
+            )
+            continue
 
-        if len(non_foams_in_category) == 0:
-            eliot.log_message(f"No non-FOAMS samples found in category '{category}'", level="warning")
-        else:
-            sample_i = rng.integers(len(non_foams_in_category))
-            trig_samples.append(non_foams_in_category.iloc[sample_i]["_model"])
+        sample_i_foams = rng.integers(len(foams_in_category))
+        trig_samples.append(foams_in_category.iloc[sample_i_foams]["_model"])
+        sample_i_non_foams = rng.integers(len(non_foams_in_category))
+        trig_samples.append(non_foams_in_category.iloc[sample_i_non_foams]["_model"])
 
     if len(control_items) < len(trig_samples):
         raise ValueError("Not enough control items to match the number of trigger samples")
