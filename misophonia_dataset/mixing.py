@@ -1,6 +1,5 @@
 from collections.abc import Collection
 
-import librosa
 import numpy as np
 
 from ._binamix import custom_mix_tracks_binaural, setup_binamix
@@ -25,31 +24,7 @@ def prepare_track_specs(
     if rng is None:
         rng = np.random.default_rng()
 
-    def _load_audios(item: SourceDataItem) -> tuple[SourceDataItem, np.ndarray]:
-        return item, librosa.load(item.file_path, sr=global_params.sample_rate, mono=True)[0]
-
-    def _normalize_audios(
-        fg_audios: tuple[SourceDataItem, np.ndarray], bg_audios: tuple[SourceDataItem, np.ndarray]
-    ) -> tuple[tuple[SourceDataItem, np.ndarray], tuple[SourceDataItem, np.ndarray]]:
-        rms_fg = [np.sqrt(np.mean(audio**2)) for _, audio in fg_audios]
-        rms_bg = [np.sqrt(np.mean(audio**2)) for _, audio in bg_audios]
-
-        rms_target = np.mean(rms_fg + rms_bg)
-
-        fg_norm = tuple(
-            (item, audio * (rms_target / rms)) if rms > 1e-6 else (item, audio)
-            for (item, audio), rms in zip(fg_audios, rms_fg)
-        )
-        bg_norm = tuple(
-            (item, audio * (rms_target / rms)) if rms > 1e-6 else (item, audio)
-            for (item, audio), rms in zip(bg_audios, rms_bg)
-        )
-
-        return fg_norm, bg_norm
-
-    def _generate_padded_track_specs(
-        item: SourceDataItem, audio: np.ndarray, max_len: int, options: dict
-    ) -> TrackAudioSpec:
+    def _generate_track_specs(item: SourceDataItem, audio: np.ndarray, max_len: int, options: dict) -> TrackAudioSpec:
         # Find placement at random (rest will be zero padded)
         length = audio.shape[0]
         start = rng.integers(0, max_len - length) if max_len > length else 0
@@ -63,31 +38,25 @@ def prepare_track_specs(
             **options,
         )
 
-        padded_audio = np.pad(audio, (start, max_len - end), mode="constant")
+        return track, audio
 
-        return track, padded_audio
+    fg_audios = tuple((item, item.load_audio(sample_rate=global_params.sample_rate)[0]) for item in fg_items)
+    bg_audios = tuple((item, item.load_audio(sample_rate=global_params.sample_rate)[0]) for item in bg_items)
 
-    fg_audios = tuple(map(_load_audios, fg_items))
-    bg_audios = tuple(map(_load_audios, bg_items))
-
-    fg_normalized, bg_normalized = _normalize_audios(fg_audios, bg_audios)
-
-    max_length = max(
-        max(audio.shape[0] for _, audio in fg_normalized), max(audio.shape[0] for _, audio in bg_normalized)
-    )
+    max_length = max(max(audio.shape[0] for _, audio in fg_audios), max(audio.shape[0] for _, audio in bg_audios))
     fg_specs = tuple(
-        _generate_padded_track_specs(item, audio, max_length, fg_track_options or {}) for item, audio in fg_normalized
+        _generate_track_specs(item, audio, max_length, fg_track_options or {}) for item, audio in fg_audios
     )
     bg_specs = tuple(
-        _generate_padded_track_specs(item, audio, max_length, bg_track_options or {}) for item, audio in bg_normalized
+        _generate_track_specs(item, audio, max_length, bg_track_options or {}) for item, audio in bg_audios
     )
 
     return fg_specs, bg_specs
 
 
 def binaural_mix(
-    fg_tracks: tuple[TrackAudioSpec, ...],
-    bg_tracks: tuple[TrackAudioSpec, ...],
+    fg_specs: tuple[TrackAudioSpec, ...],
+    bg_specs: tuple[TrackAudioSpec, ...],
     global_params: GlobalMixingParams,
     *,
     is_trig: bool,
@@ -95,6 +64,11 @@ def binaural_mix(
     """
     Max a binaural mix of a foreground (trigger) and background sound.
     """
+
+    fg_specs = tuple(fg_specs)
+    bg_specs = tuple(bg_specs)
+
+    fg_specs, bg_specs = _normalize_and_pad(fg_specs, bg_specs)
 
     def _make_binamix_track(spec: TrackAudioSpec) -> TrackObject:
         track, padded_audio = spec
@@ -107,8 +81,8 @@ def binaural_mix(
             audio=padded_audio,
         )
 
-    fg_binamix_tracks = list(map(_make_binamix_track, fg_tracks))
-    bg_binamix_tracks = list(map(_make_binamix_track, bg_tracks))
+    fg_binamix_tracks = list(map(_make_binamix_track, fg_specs))
+    bg_binamix_tracks = list(map(_make_binamix_track, bg_specs))
 
     mix = custom_mix_tracks_binaural(
         tracks=[*fg_binamix_tracks, *bg_binamix_tracks],
@@ -137,34 +111,27 @@ def binaural_mix(
         return mix, None  # silence for control sound
 
 
-# def validation_binaural_mix(
-#     trig: Path,
-#     control: Path,
-#     bg: Path,
-# ) -> tuple[tuple[np.ndarray, np.ndarray, int], tuple[np.ndarray, np.ndarray, int]]:
-#     """
-#     Mixing function specially designed for the validation experiment. Guarantees (trig, bg) (ctrl, bg) pairs with equivalent
-#     mixing parameters.
+def _normalize_and_pad(
+    fg_tracks: tuple[TrackAudioSpec, ...],
+    bg_tracks: tuple[TrackAudioSpec, ...],
+) -> tuple[tuple[TrackAudioSpec, ...], tuple[TrackAudioSpec, ...]]:
+    # RMS normalization:
+    rms_fg = [np.sqrt(np.mean(audio**2)) for _, audio in fg_tracks]
+    rms_bg = [np.sqrt(np.mean(audio**2)) for _, audio in bg_tracks]
+    rms_target = np.mean(rms_fg + rms_bg)
+    fg_norm = tuple(
+        (item, audio * (rms_target / rms)) if rms > 1e-6 else (item, audio)
+        for (item, audio), rms in zip(fg_tracks, rms_fg)
+    )
+    bg_norm = tuple(
+        (item, audio * (rms_target / rms)) if rms > 1e-6 else (item, audio)
+        for (item, audio), rms in zip(bg_tracks, rms_bg)
+    )
 
-#     Returns mixed (trig, bg), (ctrl, bg) and ground truths + sample rates for each mix.
-#     """
-#     raise NotImplementedError("This function is not implemented yet.")
-#     # params = MixingParams()
+    # Padding:
+    max_end = max(track.end for track, _ in fg_norm + bg_norm)
+    fg_padded = tuple((track, np.pad(audio, (track.start, max_end - track.end))) for track, audio in fg_norm)
+    bg_padded = tuple((track, np.pad(audio, (track.start, max_end - track.end))) for track, audio in bg_norm)
 
-#     # t_mix, t_gt, t_sr = binaural_mix(
-#     #     trig,
-#     #     bg,
-#     #     params,
-#     #     is_trig=True,
-#     # )
-
-#     # c_mix, c_gt, c_sr = binaural_mix(
-#     #     trig,
-#     #     bg,
-#     #     params,
-#     #     is_trig=False,
-#     # )
-
-#     # raise NotImplementedError("Control variable is not even used here ...")
-
-#     # return (t_mix, t_gt, t_sr), (c_mix, c_gt, c_sr)
+    assert all(len(audio) == max_end for _, audio in fg_padded + bg_padded)
+    return fg_padded, bg_padded
