@@ -17,6 +17,12 @@ class Fsd50kDataset(SourceData):
     Controls, triggers, and backgrounds are sampled from FSD50K.
     """
 
+    dataset_license = License(
+        license_url="https://creativecommons.org/licenses/by/4.0/",
+        attribution_name="E. Fonseca, X. Favory, J. Pons, F. Font & X. Serra",
+        attribution_url="https://ieeexplore.ieee.org/document/9645159",
+    )
+
     def __init__(
         self,
         *,
@@ -192,16 +198,10 @@ class Fsd50kDataset(SourceData):
 
         meta[["label_type", "labels"]] = meta.apply(_determine_label_type_and_labels, axis=1, result_type="expand")
 
-        meta["licensing"] = generate_freesound_licenses(
-            meta["freesound_id"],
-            base_licenses=(
-                License(
-                    license_url="https://creativecommons.org/licenses/by/4.0/",
-                    attribution_name="E. Fonseca, X. Favory, J. Pons, F. Font & X. Serra",
-                    attribution_url="https://ieeexplore.ieee.org/document/9645159",
-                ),
-            ),
-        )
+        meta["sound_license"] = generate_freesound_licenses(meta["freesound_id"])
+        # meta["dataset_license"] =
+        # add self.dataset_license to all rows
+        meta["dataset_license"] = (self.dataset_license,) * len(meta)
 
         meta["validated_by"] = is_validated_ids(meta["freesound_id"])
         meta["split"] = train_valid_test_split(meta["freesound_id"], validated_by=meta["validated_by"], fsd50k=self)

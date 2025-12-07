@@ -14,6 +14,12 @@ class FoamsDataset(SourceData):
     Class for FOAMS misophonia trigger sounds. Downloaded from https://zenodo.org/records/7109069
     """
 
+    dataset_license = License(
+        license_url="https://creativecommons.org/licenses/by/4.0/",
+        attribution_name="D. M. Orloff, D. Benesch & H. A. Hansen",
+        attribution_url="https://doi.org/10.5334/jopd.94",
+    )
+
     def __init__(self, save_dir: Path | None = None) -> None:
         self._base_save_dir = save_dir if save_dir is not None else get_default_data_dir(dataset_name="FOAMS")
         self._meta = None
@@ -66,16 +72,8 @@ class FoamsDataset(SourceData):
             lambda x: (self._base_save_dir / "processed_audio" / f"{x}_processed.wav").relative_to(cwd)
         )
 
-        meta["licensing"] = generate_freesound_licenses(
-            meta["freesound_id"],
-            base_licenses=(
-                License(
-                    license_url="https://creativecommons.org/licenses/by/4.0/",
-                    attribution_name="D. M. Orloff, D. Benesch & H. A. Hansen",
-                    attribution_url="https://doi.org/10.5334/jopd.94",
-                ),
-            ),
-        )
+        meta["sound_license"] = generate_freesound_licenses(meta["freesound_id"])
+        meta["dataset_license"] = (self.dataset_license,) * len(meta)
 
         meta["validated_by"] = is_validated_ids(meta["freesound_id"])
         meta["split"] = train_valid_test_split(meta["freesound_id"], validated_by=meta["validated_by"])

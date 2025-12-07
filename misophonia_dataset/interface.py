@@ -50,8 +50,10 @@ class SourceDataItem(BaseModel):
     """
     validated_by: tuple[str, ...] | None = None
     """List of names for studies (e.g., FOAMS) that have validated this data point. If not any, None. Only applicable for trigger sounds."""
-    licensing: tuple[License, ...] | None = None  # Maybe make it into a sound_license and dataset_license
-    """Licensing information. A collection of dictionaries (see LicenceT above)."""
+    sound_license: License | None = None
+    """License information for the specific sound."""
+    dataset_license: License | None = None
+    """License information for the source dataset containing the sound."""
 
     model_config = pydantic.ConfigDict(
         # Allow extra fields since different datasets have different metadata fields. Extra fields should be prefixed by the dataset name to avoid conflicts.
@@ -189,6 +191,7 @@ class MisophoniaItem(BaseModel):
     global_mixing_params: GlobalMixingParams
 
     mix_licensing: tuple[License, ...] = DEFAULT_MIXED_DATASET_LICENSE
+    """The licensing for the mixing aspect. Note that this does not include the licensing for the individual source sounds."""
 
     # Experimental information:
     paired_uuid: str | None = None
