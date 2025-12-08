@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..interface import License, MappingT, SourceData, SourceDataItem, get_default_data_dir
+from ..interface import License, MappingT, SourceData, SourceDataItem, get_data_dir
 from ._downloading import download_and_unzip, is_unzipped
 from ._freesound_license import generate_freesound_licenses
 from ._splitting import is_validated_ids, train_valid_test_split
@@ -29,7 +29,7 @@ class Esc50Dataset(SourceData):
 
         self.mapping: MappingT = mapping
 
-        self._base_save_dir = save_dir if save_dir is not None else get_default_data_dir(dataset_name="ESC50")
+        self._base_save_dir = save_dir if save_dir is not None else get_data_dir(dataset_name="ESC50")
         self._base_unzipped_dir = self._base_save_dir / "ESC-50-master"
         self._meta = None
 

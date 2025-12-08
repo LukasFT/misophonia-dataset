@@ -2,50 +2,99 @@
 
 The first large-scale, open-access binaural dataset confirmed to trigger people with misophonia
 
-License: N/A
-
 
 ## Getting Started
 
-Pre-requisites:
+To get started easily, we recommend using the provided DevContainer configuration. This allows you to set up a consistent development environment with all necessary dependencies. To do this, ensure you have the following installed:
 
 - Docker
 - VS Code
 - DevContainer Extension
 
-## Running
 
-Generally, use the CLI to run scripts. See more details by running:
+
+## Using the dataset in Python
+
+To use the dataset in Python, you have two options. You can use the canonical version with the `PremadeMisophoniaDataset` class. Or you can generate your own on the fly using the `MisophoniaDatasetGenerator` class. 
+
+
+### Initializing the canonical dataset
+
+!!! TODO: Write about how we distribute the dataset.
+
+```python
+from misophonia_dataset.misophonia_dataset import PremadeMisophoniaDataset
+
+dataset = PremadeMisophoniaDataset.load("canonical-v1", base_save_dir="path/to/data/dir")
+split = dataset.get_split("train")
+```
+
+
+### Initializing a dataset generated on-the-fly
+
+```python
+from misophonia_dataset.source_data.esc50 import Esc50Dataset
+from misophonia_dataset.source_data.foams import FoamsDataset
+from misophonia_dataset.source_data.fsd50k import Fsd50kDataset
+from misophonia_dataset.misophonia_dataset import GeneratedMisophoniaDataset
+
+data_dir = "path/to/data/dir"
+source_data = (
+    Esc50Dataset(save_dir=data_dir),
+    FoamsDataset(save_dir=data_dir),
+    Fsd50kDataset(save_dir=data_dir),
+)
+
+for source in source_data:
+    # Make sure the data is in the data_dir
+    # Can also be done using the CLI (see below)
+    source.download_data()
+
+dataset = GeneratedMisophoniaDataset(source_data=source_data)
+split = dataset.get_split("train", num_samples=10)  # See doctring for more details on options 
+```
+
+Note: You can also use the CLI or the `PremadeMisophoniaDataset.save_split` method to generate and save a custom dataset to disk for later use.
+
+
+### Iterating over dataset items
+
+Using either of the two options above, you can iterate over the dataset as follows:
+
+```python
+for item in split:
+    print(item)  # See details about this in misophonia_dataset.interface.MisophoniaItem
+
+    is_trigger = item.is_trigger  # True if the mixture contains misophonia trigger sounds
+    mix = item.get_mix_audio()  # A numpy array with binaural audio
+    ground_truth = item.get_ground_truth_audio()  # A numpy array of the same dimentionality with only the binaural trigger sounds (if any)
+
+    # Your own logic to train a model to predict the isolated triggers (ground_truth) from the entire mix (mix)
+```
+
+## Using the CLI
+
+You can use the CLI to run scripts. See more details by running:
 
 ```bash
 python -m misophonia_dataset.main --help
 ```
 
-## Creating the Dataset
-
-!!! TODO: Update the descriptios below
-### Trigger Sounds
-1. Create a directory called data and a subdirectory metadata
-2. Download FSDK50_dev, FSD50K_eval ESC50 and FOAMS datasets into data (requires ~30gb disk space)
-3. Run the scripts to generate trigger examples from each dataset
-4. Merge and split trigger sounds into dev and eval sets
-
-### Control Sounds
-1. Run the scripts to generate control sounds from the datasets
-2. Merge and split control sounds into dev and eval sets
-
-### Background Sounds
-1. Run the scripts to generate background sounds from the datasets
-2. Merge and split background sounds into dev and eval sets
-
-### Binaural Mixing & Final Dataset
-1. Run mixing script on dev directory and on eval directory to generate final train/test binaural Misophonia dataset.
-
-
-## Developing
-
-Install a package:
+### Downloading Source Data
+To download all the source data used to generate the dataset, run:
 
 ```bash
-uv add [--dev] <package>
+python -m misophonia_dataset.main download
+```
+
+This may take a while.
+
+### Reproducing the Canonical Dataset
+
+To reproduce the canonical dataset splits, first download the source data as descibed above, then run the following commands:
+
+```bash
+python -m misophonia_dataset.main generate canonical-v1-reproduced test -n 10 --seed 42 --add-experimental-pairs
+python -m misophonia_dataset.main generate canonical-v1-reproduced val -n 10 --seed 42
+python -m misophonia_dataset.main generate canonical-v1-reproduced train -n 10 --seed 42
 ```

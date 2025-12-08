@@ -14,10 +14,20 @@ MappingT: TypeAlias = dict[str, dict[Literal["foams_mapping"], str]]
 
 
 SplitT: TypeAlias = Literal["train", "val", "test"]
-"""The possible dataset splits."""
+"""
+The possible dataset splits, for both source datasets and mixed data.
+
+See misophonia_dataset.source_data._splitting.train_valid_test_split for more information about how this is achieved by default.
+"""
 
 
 class BaseModel(pydantic.BaseModel):
+    """
+    Pydantic model that we will use to define our data classes.
+
+    See https://docs.pydantic.dev/latest/ for more information.
+    """
+
     model_config = pydantic.ConfigDict(
         arbitrary_types_allowed=True,
         frozen=True,  # this means that instances are immutable
@@ -26,37 +36,48 @@ class BaseModel(pydantic.BaseModel):
 
 
 class License(BaseModel):
+    """A license for any sound, dataset or any other asset."""
+
     license_url: str
     attribution_name: str
     attribution_url: str
 
 
 class SourceDataItem(BaseModel):
+    """Metadata for a single audio file in a source dataset."""
+
     split: SplitT
-    """Dataset split: train, val, or test. See SplitT."""
+    """Dataset split (see SplitT)."""
+
     source_dataset: str
-    """Name of the source dataset that returned this metadata."""
+    """Name of the source dataset that contains this audio and metadata."""
+
     file_path: Path
     """Path to the audio file."""
+
     freesound_id: int | None = None
     """FreeSound.org ID of the audio file, if available."""
+
     label_type: Literal["control", "trigger", "background"]
     """Type of sound."""
     labels: tuple[str, ...]
     """
-    Label according to the FOAMS taxonomy (if sound_type = 'trigger') and, otherwise, the AudioSet (FSD50K) taxonomy.
+    Label according to the FOAMS taxonomy (if label_type = 'trigger') and, otherwise, the AudioSet (FSD50K) taxonomy.
 
-    There can be one more more labels (str or list of str). But all labels must be of the same sound_type. Any data point that has labels from multiple sound_types should be excluded.
+    There can be one more more labels. But all labels must be of the same sound_type.
     """
+
     validated_by: tuple[str, ...] | None = None
-    """List of names for studies (e.g., FOAMS) that have validated this data point. If not any, None. Only applicable for trigger sounds."""
+    """Names of studies (e.g., FOAMS) that have validated this data point to trigger misophoniacs. Only applicable for trigger sounds."""
+
     sound_license: License | None = None
     """License information for the specific sound."""
     dataset_license: License | None = None
     """License information for the source dataset containing the sound."""
 
     model_config = pydantic.ConfigDict(
-        # Allow extra fields since different datasets have different metadata fields. Extra fields should be prefixed by the dataset name to avoid conflicts.
+        # Allow extra fields since different datasets have different metadata fields.
+        # Extra fields should be prefixed by the dataset name to avoid conflicts.
         extra="allow",
     )
 
@@ -66,24 +87,30 @@ class SourceDataItem(BaseModel):
 
 
 class SourceTrack(BaseModel):
+    """A track contains a source item as well as the parameters specific to this used for mixing."""
+
     source_item: SourceDataItem
+    """The source data item where the sound comes from."""
 
     start: int
-    """Start time (in samples, i.e. not time) of the clip."""
+    """Start offset (in samples, i.e. not time) of the clip."""
     end: int
-    """End time (in samples, i.e. not time) of the clip."""
+    """End offset (in samples, i.e. not time) of the clip."""
 
-    # Random defaults:
-    azimuth: float
-    elevation: float
-    level: float
-    reverb: float
-
-    _rng: np.random.Generator = pydantic.PrivateAttr(default_factory=np.random.default_rng)
+    ### Binamix parameters ###
+    # See https://github.com/QxLabIreland/Binamix/ for details.
+    azimuth: float  # Random default
+    """Azimuth angle for spatialization (in degrees)."""
+    elevation: float  # Random default
+    """Elevation angle for spatialization (in degrees)."""
+    level: float  # Random default
+    """Level (loudness) scaling factor for the sound. Applied after RMS normalization."""
+    reverb: float  # Random default
+    """Reverb amount for the sound."""
 
     @pydantic.model_validator(mode="before")
     @classmethod
-    def fill_defaults(cls, values: list):  # noqa: ANN001, ANN206
+    def _fill_random_defaults(cls, values: list):  # noqa: ANN001, ANN206
         rng: np.random.Generator = values.pop("_rng", np.random.default_rng())
 
         if "azimuth" not in values:
@@ -101,18 +128,47 @@ class SourceTrack(BaseModel):
         return values
 
 
-class GlobalMixingParams(BaseModel):
-    subject_id: str  # Randomized default
-    speaker_layout: str = "none"  # Stereo
-    sample_rate: int = 44100
-    reverb_type: str  # Randomized default
-    mode: str = "nearest"
-    ir_type: str = "BRIR"
+ReverbT = Literal[
+    "1",  # Theatre
+    "2",  # Office
+    "3",  # Small Room
+    "4",  # Meeting Room
+]
+"""Type alias for reverb types. See https://github.com/QxLabIreland/Binamix/?tab=readme-ov-file#mix_tracks_binaural for details."""
 
-    # Initilize defaults at random
+InterpolationModeT = Literal["auto", "nearest", "planar", "two_point", "three_point"]
+"""Type alias for interpolation modes. See https://github.com/QxLabIreland/Binamix/?tab=readme-ov-file#mix_tracks_binaural for details."""
+
+ImpulseResponseT = Literal[
+    "BRIR",  # Binaural Room Impulse Response
+    "DRIR",  # Directional Room Impulse Response
+]
+"""Type alias for impulse response types. See https://github.com/QxLabIreland/Binamix/?tab=readme-ov-file#mix_tracks_binaural for details."""
+
+
+class GlobalMixingParams(BaseModel):
+    """
+    Global mixing parameters relevant for the general mix (i.e., not specific to any one track).
+
+    See https://github.com/QxLabIreland/Binamix/ for details.
+    """
+
+    subject_id: str  # Randomized default
+    """ID of the subject used for binaural rendering, according to the SADIE II database."""
+    speaker_layout: str = "none"  # Stereo
+    """Layout of the output speakers / channels."""
+    sample_rate: int = 44100
+    """The target sample rate for the mix to be generated at."""
+    reverb_type: ReverbT  # Randomized default
+    """Type of reverb to use. See ReverbT for more."""
+    mode: InterpolationModeT = "nearest"
+    """Interpolation mode. See InterpolationModeT for more."""
+    ir_type: ImpulseResponseT = "BRIR"
+    """Type of impulse response to use."""
+
     @pydantic.model_validator(mode="before")
     @classmethod
-    def fill_defaults(cls, values: list):  # noqa: ANN001, ANN206
+    def _fill_random_defaults(cls, values: list):  # noqa: ANN001, ANN206
         rng: np.random.Generator = values.pop("_rng", np.random.default_rng())
 
         if "subject_id" not in values:
@@ -162,13 +218,24 @@ DEFAULT_MIXED_DATASET_LICENSE = (
 
 
 class MisophoniaItem(BaseModel):
+    """A single mixed item in a misophonia dataset."""
+
     split: SplitT
+    """Dataset split (see SplitT)."""
 
     uuid: str | None = None
+    """Unique identifier for the item. May be None if the item has not been saved."""
 
     is_trigger: bool
+    """Whether this item contains trigger sounds. If False, it only contains control/background sounds."""
     foreground_categories: tuple[str, ...]
+    """
+    Categories of the foreground sounds in this item.
+
+    Like SourceDataItem.labels, these are according to either the FOAMS taxonomy if is_trigger = True, else to the AudioSet (FSD50K) taxonomy.
+    """
     background_categories: tuple[str, ...]
+    """Categories of the background sounds in this item according to the AudioSet (FSD50K) taxonomy."""
 
     mix: np.ndarray | Path
     """
@@ -186,14 +253,18 @@ class MisophoniaItem(BaseModel):
     """Duration in number of samples."""
 
     foregrounds: tuple[SourceTrack, ...]
+    """Foreground (trigger or control) tracks used in the mix."""
     backgrounds: tuple[SourceTrack, ...]
+    """Background tracks used in the mix."""
 
     global_mixing_params: GlobalMixingParams
+    """Global mixing parameters used to generate the mix."""
 
     mix_licensing: tuple[License, ...] = DEFAULT_MIXED_DATASET_LICENSE
     """The licensing for the mixing aspect. Note that this does not include the licensing for the individual source sounds."""
 
-    # Experimental information:
+    ### Information relating to the experimental validation ###
+    # See misophonia_dataset.misophonia_dataset.add_experimental_pairs_to_dataset for more details.
     paired_uuid: str | None = None
     """UUID of the paired version of this item, if any."""
     experimental_discomfort_level: float | None = pydantic.Field(None, ge=0, le=5)
@@ -207,26 +278,59 @@ class MisophoniaItem(BaseModel):
     def duration(self) -> float:
         return self.length / self.global_mixing_params.sample_rate
 
-    # Validate that all forgrounds and background are of split
+    @property
+    def all_licenses(self) -> tuple[License, ...]:
+        """All licenses relevant for this item, including source sounds and mixing."""
+        return tuple(
+            itertools.chain(
+                self.mix_licensing,
+                *(
+                    filter(
+                        None,
+                        (
+                            track.source_item.sound_license,
+                            track.source_item.dataset_license,
+                        ),
+                    )
+                    for track in itertools.chain(self.foregrounds, self.backgrounds)
+                ),
+            )
+        )
+
+    def get_mix_audio(self) -> np.ndarray:
+        """Load (if not already loaded) and return the mixed audio data."""
+        if isinstance(self.mix, Path):
+            return self._load_audio(self.mix)
+        return self.mix
+
+    def get_ground_truth_audio(self, *, control_as_zeros: bool = True) -> np.ndarray:
+        """Load (if not already loaded) and return the ground truth audio data."""
+        if self.ground_truth is None:
+            return np.zeros((2, self.length)) if control_as_zeros else None
+        if isinstance(self.ground_truth, Path):
+            return self._load_audio(self.ground_truth)
+        return self.ground_truth
+
     @pydantic.model_validator(mode="after")
-    def check_splits(self) -> "MisophoniaItem":
+    def _check_splits(self) -> "MisophoniaItem":
+        """Validate that all forgrounds and background are of split"""
         if any(track.source_item.split != self.split for track in itertools.chain(self.foregrounds, self.backgrounds)):
             raise ValueError("All foreground and background items must match the MisophoniaItem split.")
         return self
 
-    # validate that iff is_trigger then ground_truth is not None
     @pydantic.model_validator(mode="after")
-    def check_ground_truth(self) -> "MisophoniaItem":
+    def _check_ground_truth(self) -> "MisophoniaItem":
+        """Validate that iff is_trigger then ground_truth is not None"""
         if self.is_trigger and self.ground_truth is None:
             raise ValueError("If is_trigger is True, ground_truth must not be None.")
         if not self.is_trigger and self.ground_truth is not None:
             raise ValueError("If is_trigger is False, ground_truth must be None.")
         return self
 
-    # auto-compute categories if none given
     @pydantic.model_validator(mode="before")
     @classmethod
-    def auto_compute_categories(cls, values: dict) -> dict:
+    def _auto_compute_categories(cls, values: dict) -> dict:
+        """Auto-compute categories if none given."""
         if "foreground_categories" not in values or values["foreground_categories"] is None:
             if "foregrounds" not in values:
                 raise ValueError("Cannot auto-compute foreground_categories without foregrounds.")
@@ -242,18 +346,6 @@ class MisophoniaItem(BaseModel):
 
         return values
 
-    def get_mix_audio(self) -> np.ndarray:
-        if isinstance(self.mix, Path):
-            return self._load_audio(self.mix)
-        return self.mix
-
-    def get_ground_truth_audio(self) -> np.ndarray:
-        if self.ground_truth is None:
-            return np.zeros((2, self.length))
-        if isinstance(self.ground_truth, Path):
-            return self._load_audio(self.ground_truth)
-        return self.ground_truth
-
     @staticmethod
     def _load_audio(p: Path) -> np.ndarray:
         sound = sf.read(p)[0]
@@ -261,7 +353,17 @@ class MisophoniaItem(BaseModel):
         return sound
 
 
-def get_default_data_dir(*, dataset_name: str | None = None, base_dir: Path | None = None) -> Path:
+def get_data_dir(*, dataset_name: str | None = None, base_dir: Path | None = None) -> Path:
+    """
+    Get the default data directory for storing a dataset (either source or mixed).
+
+    Args:
+        dataset_name: Name of the dataset. If None, returns the base data directory.
+        base_dir: Base directory to use. If None, uses the "data" directory next to this package.
+
+    Returns:
+        Path to the relevant data directory.
+    """
     base_dir = base_dir or Path(__file__).parent.parent / "data"
     if dataset_name is None:
         return base_dir
@@ -269,10 +371,12 @@ def get_default_data_dir(*, dataset_name: str | None = None, base_dir: Path | No
 
 
 class SourceData(ABC):
+    """Interface for source datasets to standaridize downloading and metadata extraction."""
+
     @abstractmethod
     def is_downloaded(self) -> bool:
         """
-        Checks if the dataset has already been downloaded.
+        Checks if the dataset has been downloaded.
 
         Returns:
             True if the dataset is downloaded, False otherwise.
@@ -281,32 +385,50 @@ class SourceData(ABC):
 
     @abstractmethod
     def download_data(self) -> None:
-        """
-        Downloads dataset, extracts it, and saves it into the specified directory.
-        """
+        """Downloads, extracts, and saves dataset data."""
         pass
 
     @abstractmethod
     def get_metadata(self) -> Collection[SourceDataItem]:
+        """Get standardized metadata for the dataset."""
         pass
 
     @abstractmethod
     def delete(self) -> None:
-        """
-        Deletes the entire dataset. Useful after mixing sounds.
-        """
+        """Deletes the entire dataset. Useful after mixing sounds."""
         pass
 
     def __str__(self) -> str:
         return f"<SourceData: {self.__class__.__name__}>"
 
 
-class MisophoniaDatasetSplit(Sequence[MisophoniaItem]):
-    """
-    A view over a particular dataset split with fixed generation parameters.
+class MisophoniaDataset(ABC):
+    @abstractmethod
+    def prepare(self) -> None:
+        """Download / index / precompute anything needed before being able to iterate over splits."""
+        pass
 
-    Heavy work (mixing) happens in __getitem__, via the provided generate_one callback.
-    """
+    @abstractmethod
+    def get_split(
+        self,
+        split: SplitT,
+        **options: dict,
+    ) -> "MisophoniaDatasetSplit":
+        """
+        Return a split view for this dataset. This split view is iterable and indexable (see MisophoniaDatasetSplit).
+
+        Args:
+            split: The dataset split to return. See SplitT for more details.
+            **options: parameters custom to the specific dataset class (e.g. random_seed, num_samples, foregrounds_per_item, ...).
+
+        Returns:
+            A MisophoniaDatasetSplit object representing the requested split.
+        """
+        pass
+
+
+class MisophoniaDatasetSplit(Sequence[MisophoniaItem]):
+    """A view over a particular mixed dataset split with fixed parameters."""
 
     def __init__(
         self,
@@ -315,44 +437,42 @@ class MisophoniaDatasetSplit(Sequence[MisophoniaItem]):
         num_samples: int,
         get_one: Callable[[int], MisophoniaItem],
     ) -> None:
+        """
+        Make a view over a particular mixed dataset split with fixed parameters.
+
+        Args:
+            split: The dataset split this view represents. See SplitT for more details.
+            num_samples: Number of samples in this split.
+            get_one: A function that takes an index and returns the corresponding MisophoniaItem.
+                        This should be where heavy logic for generating the item is implemented,
+                        in order to make the class lightweight and parallelizable.
+        """
         self._split = split
         self._num_samples = num_samples
         self._get_one = get_one
 
     @property
     def split(self) -> SplitT:
+        """The dataset split this view represents. See SplitT for more details."""
         return self._split
 
     def __len__(self) -> int:
+        """Number of samples in this split."""
         return self._num_samples
 
     def __getitem__(self, idx: int) -> MisophoniaItem:
-        if idx < 0:
+        """Get the item at the specified index."""
+        if idx < 0:  # Allow e.g. split[-1] indexing
             idx += self._num_samples
         if not (0 <= idx < self._num_samples):
             raise IndexError(idx)
         return self._get_one(idx)
 
     def __iter__(self) -> Iterator[MisophoniaItem]:
+        """
+        Helper to iterate over all items in the split.
+
+        Note that this does not parallelize the generation of items. For parallel generation, use indexing.
+        """
         for i in range(self._num_samples):
             yield self._get_one(i)
-
-
-class MisophoniaDataset(ABC):
-    @abstractmethod
-    def prepare(self) -> None:
-        """Download / index / precompute anything needed before generation."""
-        pass
-
-    @abstractmethod
-    def get_split(
-        self,
-        split: SplitT,
-        **kwargs: object,
-    ) -> MisophoniaDatasetSplit:
-        """
-        Return a split view for this dataset.
-
-        kwargs are generation parameters (e.g. random_seed, foregrounds_per_item, ...).
-        """
-        pass
