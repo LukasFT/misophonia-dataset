@@ -122,7 +122,7 @@ class SourceTrack(BaseModel):
         if "level" not in values:
             values["level"] = round(rng.uniform(0.4, 1.0), 1)
 
-        if "reverb" not in values:  # TODO: What should be the default?
+        if "reverb" not in values:
             values["reverb"] = round(rng.uniform(0.0, 1.0), 1)
 
         return values
@@ -205,7 +205,7 @@ class GlobalMixingParams(BaseModel):
 
 DEFAULT_MIXED_DATASET_LICENSE = (
     License(
-        license_url="https://creativecommons.org/licenses/by/4.0/",  # Figure out if that is the license we want
+        license_url="https://creativecommons.org/licenses/by/4.0/",
         attribution_name="Lukas Frimer Tholander & Tonio Ermakoff",
         attribution_url="https://github.com/LukasFT/misophonia-dataset",
     ),
