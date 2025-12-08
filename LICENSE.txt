@@ -1,0 +1,7 @@
+This dataset is generated using a number of Creative Commons-licensed audio samples, which we got from Creative Commons-licensed datasets.
+
+Each sound mixture is licenses according to all the licenses used, which is denoted in the metadata files (see MisophoniaItem.all_licenses).
+
+The dataset a whole is licensed under Creative Commons Attribution 4.0 International (https://creativecommons.org/licenses/by/4.0/). Attribution to Lukas Frimer Tholander & Tonio Ermakoff.
+
+The code in this repository is licensed under the MIT license.
