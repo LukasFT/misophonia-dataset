@@ -94,7 +94,7 @@ This may take a while.
 To reproduce the canonical dataset splits, first download the source data as descibed above, then run the following commands:
 
 ```bash
-python -m misophonia_dataset.main generate canonical-v1-reproduced test -n 10 --seed 42 --add-experimental-pairs
-python -m misophonia_dataset.main generate canonical-v1-reproduced val -n 10 --seed 42
-python -m misophonia_dataset.main generate canonical-v1-reproduced train -n 10 --seed 42
+python -m misophonia_dataset.main generate canonical-v1-reproduced test -n 3000 --seed 42 --add-experimental-pairs
+python -m misophonia_dataset.main generate canonical-v1-reproduced val -n 7000 --seed 42
+python -m misophonia_dataset.main generate canonical-v1-reproduced train -n 20000 --seed 42
 ```
