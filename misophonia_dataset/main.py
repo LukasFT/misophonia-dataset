@@ -14,7 +14,7 @@ from typing_extensions import Annotated
 
 from ._binamix import download_sadie
 from ._log import setup_print_logging
-from .interface import SourceData, get_default_data_dir
+from .interface import SourceData, get_data_dir
 from .misophonia_dataset import GeneratedMisophoniaDataset, PremadeMisophoniaDataset, add_experimental_pairs_to_dataset
 from .source_data.esc50 import Esc50Dataset
 from .source_data.foams import FoamsDataset
@@ -42,7 +42,7 @@ def generate(
     max_fgs_pr_item: Annotated[int, typer.Option("--max-fgs-pr-item", help="Maximum foregrounds per item")] = 1,
     min_bgs_pr_item: Annotated[int, typer.Option("--min-bgs-pr-item", help="Minimum backgrounds per item")] = 1,
     max_bgs_pr_item: Annotated[int, typer.Option("--max-bgs-pr-item", help="Maximum backgrounds per item")] = 3,
-    seed: Annotated[int, typer.Option("--random-seed", "-r", help="Random seed for sampling")] = 42,
+    seed: Annotated[int, typer.Option("--seed", help="Random seed for sampling")] = 42,
     add_experimental_pairs: Annotated[
         bool,
         typer.Option("--add-experimental-pairs", help="Add pairs used for the experimental validation of the dataset"),
@@ -132,11 +132,11 @@ def search_metadata(
 def _get_dataset_from_name(name: str, base_dir: Path) -> SourceData:
     name = name.lower().strip()
     if name == "foams":
-        return FoamsDataset(save_dir=get_default_data_dir(dataset_name="FOAMS", base_dir=base_dir))
+        return FoamsDataset(save_dir=get_data_dir(dataset_name="FOAMS", base_dir=base_dir))
     elif name == "esc50":
-        return Esc50Dataset(save_dir=get_default_data_dir(dataset_name="ESC50", base_dir=base_dir))
+        return Esc50Dataset(save_dir=get_data_dir(dataset_name="ESC50", base_dir=base_dir))
     elif name == "fsd50k":
-        return Fsd50kDataset(save_dir=get_default_data_dir(dataset_name="FSD50K", base_dir=base_dir))
+        return Fsd50kDataset(save_dir=get_data_dir(dataset_name="FSD50K", base_dir=base_dir))
     raise ValueError(f"Unknown dataset name: {name}")
 
 

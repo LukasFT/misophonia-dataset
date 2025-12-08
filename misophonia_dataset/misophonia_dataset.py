@@ -5,11 +5,13 @@ import os
 import shutil
 import uuid
 import warnings
+from collections.abc import Generator, Iterable
 from pathlib import Path
 from typing import Literal
 
 import eliot
 import numpy as np
+import pydantic
 import soundfile as sf
 from tqdm import tqdm
 
@@ -22,12 +24,14 @@ from .interface import (
     SourceData,
     SourceDataItem,
     SplitT,
-    get_default_data_dir,
+    get_data_dir,
 )
 
 
 class GeneratedMisophoniaDataset(MisophoniaDataset):
-    def __init__(self, source_data: list[SourceData]) -> None:
+    """Mixed dataset that is generated on-the-fly for some given source datasets."""
+
+    def __init__(self, source_data: Iterable[SourceData]) -> None:
         self._source_data = source_data
         self._items_by_split: dict[SplitT, list[SourceDataItem]] | None = None
 
@@ -54,8 +58,22 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
         backgrounds_per_item: tuple[int, int] = (1, 3),
         trig_to_control_ratio: float = 0.5,
         random_seed: int = 42,
-        # TODO: Maybe there should be some option to make sure the generated sounds are not too short etc.
     ) -> MisophoniaDatasetSplit:
+        """
+        Return a split view for the dataset generated according to the specified options.
+
+        Args:
+            split: The dataset split to return. See SplitT for more details.
+            num_samples: Number of samples to generate in this split.
+            foregrounds_per_item: Tuple specifying the (min, max) number of foregrounds per mixed item.
+            backgrounds_per_item: Tuple specifying the (min, max) number of backgrounds per mixed item.
+            trig_to_control_ratio: Ratio of trigger to control sounds in the generated items.
+            random_seed: Random seed for sampling.
+                            Given the same seed, parameters, source data and code version, the same dataset will be generated.
+
+        Returns:
+            A MisophoniaDatasetSplit object representing the requested split. See MisophoniaDatasetSplit for more details.
+        """
         from .mixing import binaural_mix, prepare_track_specs
 
         if split == "test":
@@ -73,11 +91,17 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
         all_ctrl_items = [it for it in all_items if it.label_type == "control"]
         all_bg_items = [it for it in all_items if it.label_type == "background"]
 
-        def _prepare_samples():  # noqa: ANN202
-            """Prepare sample indices and random seeds for dataset generation."""
+        def _make_sampling_plan():  # noqa: ANN202
+            """
+            Prepare sample indices and random seeds for dataset generation.
+
+            Must be called in the main worker thread before any parallel generation starts.
+
+            This means that the mixing can happen in parallel while still being reproducible.
+            """
             rng_plan = np.random.default_rng(seed=random_seed)
 
-            def make_cycle(n: int):  # noqa: ANN202
+            def make_idx_cycle(n: int):  # noqa: ANN202
                 """Yield indices 0..n-1 in random order, then reshuffle and repeat."""
                 order = np.arange(n)
                 while True:
@@ -85,9 +109,10 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
                     for idx in order:
                         yield int(idx)
 
-            trig_cycle = make_cycle(len(all_trig_items)) if all_trig_items else None
-            ctrl_cycle = make_cycle(len(all_ctrl_items)) if all_ctrl_items else None
-            bg_cycle = make_cycle(len(all_bg_items))
+            # Make cycles for each type of item to ensure we use all items before re-using any
+            trig_cycle = make_idx_cycle(len(all_trig_items)) if all_trig_items else None
+            ctrl_cycle = make_idx_cycle(len(all_ctrl_items)) if all_ctrl_items else None
+            bg_cycle = make_idx_cycle(len(all_bg_items))
 
             if not trig_cycle and trig_to_control_ratio > 0:
                 raise ValueError("No trigger items but trig_to_control_ratio > 0")
@@ -117,9 +142,12 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
 
             return is_trig_for_item, fg_indices_for_item, bg_indices_for_item, seeds_for_item
 
-        is_trig_for_item, fg_indices_for_item, bg_indices_for_item, seeds_for_item = _prepare_samples()
+        is_trig_for_item, fg_indices_for_item, bg_indices_for_item, seeds_for_item = _make_sampling_plan()
 
         def _generate_one(index: int) -> MisophoniaItem:
+            """Generate one mixed item."""
+
+            # Use the the pre-computed sampling plan to ensure reproducability:
             rng = np.random.default_rng(int(seeds_for_item[index]))
             is_trig = is_trig_for_item[index]
             fg_idxs = fg_indices_for_item[index]
@@ -129,9 +157,10 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
             foreground_items = [fg_pool[j] for j in fg_idxs]
             background_items = [all_bg_items[j] for j in bg_idxs]
 
+            # Generate the mixing specifications:
             global_params = GlobalMixingParams(_rng=rng)
 
-            foreground_specs, background_specs = prepare_track_specs(
+            foreground_specs, background_specs = prepare_track_specs(  # Will also load the audio (I/O heavy)
                 foreground_items,
                 background_items,
                 global_params=global_params,
@@ -141,6 +170,7 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
             foreground_tracks, _ = tuple(zip(*foreground_specs))
             background_tracks, _ = tuple(zip(*background_specs))
 
+            # Perform the mixing (heavy work happens here):
             mix, ground_truth = binaural_mix(
                 fg_specs=foreground_specs,
                 bg_specs=background_specs,
@@ -159,6 +189,7 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
                 backgrounds=background_tracks,
             )
 
+        # Split view will call _generate_one as needed
         return MisophoniaDatasetSplit(
             split=split,
             num_samples=num_samples,
@@ -167,11 +198,22 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
 
 
 class PremadeMisophoniaDataset(MisophoniaDataset):
+    """Dataset that has been (or will be) pre-mixed and saved to disk."""
+
     def __init__(self, name: str, base_save_dir: Path | str | None = None) -> None:
+        """
+        Initialize a pre-made misophonia dataset that is stored on disk (or will be saved to disk).
+
+        Args:
+            name: Name of the dataset. Will be used to determine the save directory.
+            base_save_dir: Base directory where the dataset is stored. Name and split is appended to this, e.g.:
+                                base_save_dir / name / split / [... files ...]
+                            See misophonia_dataset.interface.get_data_dir for details.
+        """
         self.name = name
         self._base_save_dir = base_save_dir
-        self._all_splits_dir = get_default_data_dir(dataset_name=self.name, base_dir=self._base_save_dir)
-        self._items_by_split: dict[SplitT, list[MisophoniaItem]] | None = None
+        self._all_splits_dir = get_data_dir(dataset_name=self.name, base_dir=self._base_save_dir)
+        self._items_by_split: dict[SplitT, list[MisophoniaItem] | None] | None = None
 
     def prepare(self) -> None:
         if self._items_by_split is not None:
@@ -182,27 +224,32 @@ class PremadeMisophoniaDataset(MisophoniaDataset):
         for split in self._items_by_split.keys():
             split_dir = self._all_splits_dir / split
             metadata_file = split_dir / "metadata.jsonl"
+
             if not metadata_file.exists():
+                self._items_by_split[split] = None
                 continue
 
+            def _handle_line(line: str) -> dict | None:
+                obj = json.loads(line)
+                obj["mix"] = split_dir / obj["mix"]
+                obj["ground_truth"] = split_dir / obj["ground_truth"] if obj.get("ground_truth") is not None else None
+                return obj
+
             with metadata_file.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
+                objs = (_handle_line(line) for line in f if line != "")
+                t = pydantic.TypeAdapter(Generator[MisophoniaItem, None, None])
+                self._items_by_split[split] = list(t.validate_python(objs))
 
-                    obj = json.loads(line)
-                    obj["mix"] = split_dir / obj["mix"]
-                    obj["ground_truth"] = (
-                        split_dir / obj["ground_truth"] if obj.get("ground_truth") is not None else None
-                    )
-                    item = MisophoniaItem.model_validate(obj)
-                    self._items_by_split[split].append(item)
+    def get_split(self, split: SplitT) -> MisophoniaDatasetSplit:
+        """
+        Return a split view for a dataset saved on disk.
 
-    def get_split(
-        self,
-        split: SplitT,
-    ) -> MisophoniaDatasetSplit:
+        Args:
+            split: The dataset split to return. See SplitT for more details.
+
+        Returns:
+            A MisophoniaDatasetSplit object representing the requested split. See MisophoniaDatasetSplit for more details.
+        """
         self.prepare()
         items = self._items_by_split[split]
 
@@ -223,6 +270,19 @@ class PremadeMisophoniaDataset(MisophoniaDataset):
         show_progress: bool = False,
         if_exists: Literal["error", "replace", "append"] = "error",
     ) -> None:
+        """
+        Save a dataset split to disk.
+
+        Args:
+            split_data: The dataset split to save.
+                            E.g., one obtained from GeneratedMisophoniaDataset.get_split.
+            n_workers: Number of parallel workers to use for saving. If None, will use os.cpu_count().
+            show_progress: Whether to show a progress bar.
+            if_exists: Behavior if the split directory already exists. Options:
+                            "error": Raise an error.
+                            "replace": Delete the existing directory and create a new one.
+                            "append": Append new items to the existing directory (both audio data and metadata).
+        """
         split = split_data.split
 
         split_dir = self._all_splits_dir / split
@@ -296,7 +356,7 @@ def add_experimental_pairs_to_dataset(
 ) -> None:
     from .mixing import binaural_mix
 
-    split = "test"
+    split = "test"  # Must be test split for experimental pairs
 
     eliot.log_message(f"Adding experimental pairs to dataset split '{split}' with seed {seed}", level="info")
     eliot.log_message(f"Loading base dataset from {original._all_splits_dir}", level="debug")
@@ -310,34 +370,31 @@ def add_experimental_pairs_to_dataset(
     all_items = all_items[all_items["len(foreground_categories)"] == 1]
 
     control_items = all_items[~all_items["is_trigger"]]
-
     trigger_items = all_items[all_items["is_trigger"]]
-    trigger_items = trigger_items[trigger_items["len(foregrounds)"] == 1]
-    trigger_items = trigger_items[trigger_items["len(foreground_categories)"] == 1]
 
+    assert "len(foregrounds[0][source_item][validated_by])" in trigger_items.columns, (
+        "Cannot add experimental pairs since no sounds are validated."
+    )
     assert trigger_items["len(foregrounds[0][source_item][validated_by])"].dropna().eq(1).all(), (
         "Some entries have multiple validators, which is not yet supported"
     )
 
+    # Determine which sounds are FOAMS-validated
     trigger_items["is_foams"] = trigger_items["foregrounds[0][source_item][validated_by][0]"] == "FOAMS"
-
     foams_sounds = trigger_items[trigger_items["is_foams"]]
     non_foams_sounds = trigger_items[~trigger_items["is_foams"]]
 
-    # Sort to make reproducable
+    # Get trigger categories appearing in the dataset (sort to make reproducible)
     trigger_categories = tuple(sorted(trigger_items["foreground_categories[0]"].unique()))
 
-    # Sample
+    # Get samples for each category
     rng = np.random.default_rng(seed)
-
     trig_samples: list[MisophoniaItem] = []
-
     for category in trigger_categories:
-        # sample one what is foams and one not
+        # sample one FOAMS and one non-FOAMS sound from this category
         foams_in_category = foams_sounds[foams_sounds["foreground_categories[0]"] == category]
         non_foams_in_category = non_foams_sounds[non_foams_sounds["foreground_categories[0]"] == category]
 
-        # Sample one from each
         if len(foams_in_category) == 0 or len(non_foams_in_category) == 0:
             eliot.log_message(
                 f"No FOAMS and non-FOAMS samples found in category '{category}' (FOAMS = {len(foams_in_category)}, non-FOAMS = {len(non_foams_in_category)})",
@@ -350,29 +407,27 @@ def add_experimental_pairs_to_dataset(
         sample_i_non_foams = rng.integers(len(non_foams_in_category))
         trig_samples.append(non_foams_in_category.iloc[sample_i_non_foams]["_model"])
 
-    if len(control_items) < len(trig_samples):
-        raise ValueError("Not enough control items to match the number of trigger samples")
+    assert len(control_items) >= len(trig_samples), "Not enough control items to match the number of trigger samples"
 
     control_samples = rng.choice(control_items.index, size=len(trig_samples), replace=False)
     control_samples = control_items.loc[control_samples]["_model"]
     samples: list[tuple[MisophoniaItem, MisophoniaItem]] = list(zip(trig_samples, control_samples))
 
-    def _get_one(index: int) -> MisophoniaItem:
+    def _get_paired_control_item(index: int) -> MisophoniaItem:
+        """Replace the trigger foreground with a control foreground, keeping everything else the same."""
+        # Use the sampling plan from above:
         original_trig, original_control = samples[index]
 
         assert original_control.uuid is not None, "Original control item must have a UUID"
 
-        global_mixing_params = original_trig.global_mixing_params
+        global_mixing_params = original_trig.global_mixing_params  # Keep the same
         sample_rate = global_mixing_params.sample_rate
-        bg_specs = tuple(
-            # Keep the backgrounds the same
-            (track, track.source_item.load_audio(sample_rate=sample_rate)[0])
-            for track in original_trig.backgrounds
+        bg_specs = tuple(  # Load the audio for the background tracks (keeping them as is)
+            (track, track.source_item.load_audio(sample_rate=sample_rate)[0]) for track in original_trig.backgrounds
         )
         bg_tracks, _ = zip(*bg_specs)
 
-        original_control_track = original_control.foregrounds[0]
-        control_item = original_control_track.source_item
+        control_item = original_control.foregrounds[0].source_item
         control_audio = control_item.load_audio(sample_rate=sample_rate)[0]
 
         fg_track = original_trig.foregrounds[0].model_copy(
@@ -385,10 +440,9 @@ def add_experimental_pairs_to_dataset(
                 "end": original_trig.foregrounds[0].start + len(control_audio),
             }
         )
-        fg_specs = ((fg_track, control_audio),)
 
         mix, ground_truth = binaural_mix(
-            fg_specs=fg_specs,
+            fg_specs=((fg_track, control_audio),),
             bg_specs=bg_specs,
             global_params=global_mixing_params,
             is_trig=False,
@@ -406,10 +460,10 @@ def add_experimental_pairs_to_dataset(
             paired_uuid=original_trig.uuid,
         )
 
-    pairs_split = MisophoniaDatasetSplit(
+    # Make the the split view to make it compatible with save_split API
+    new_paired_items = MisophoniaDatasetSplit(
         split=split,
         num_samples=len(trig_samples),
-        get_one=_get_one,
+        get_one=_get_paired_control_item,
     )
-
-    original.save_split(pairs_split, if_exists="append", show_progress=True)
+    original.save_split(new_paired_items, if_exists="append", show_progress=True)

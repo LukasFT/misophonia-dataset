@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..interface import License, MappingT, SourceData, SourceDataItem, get_default_data_dir
+from ..interface import License, MappingT, SourceData, SourceDataItem, get_data_dir
 from ._downloading import download_and_unzip, is_unzipped
 from ._freesound_license import generate_freesound_licenses
 from ._splitting import is_validated_ids, train_valid_test_split
@@ -46,7 +46,7 @@ class Fsd50kDataset(SourceData):
                 backgrounds = json.load(f)
         self.backgrounds: list[str] = backgrounds
 
-        self._base_save_dir = Path(save_dir) if save_dir is not None else get_default_data_dir(dataset_name="FSD50K")
+        self._base_save_dir = Path(save_dir) if save_dir is not None else get_data_dir(dataset_name="FSD50K")
         self._meta = None
 
     def is_downloaded(self) -> bool:
