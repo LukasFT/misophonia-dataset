@@ -229,3 +229,4 @@ playground.py
 data/*
 !data/.gitkeep
 playground*
+!data/demo-v1/

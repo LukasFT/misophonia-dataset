@@ -15,17 +15,18 @@ To get started easily, we recommend using the provided DevContainer configuratio
 
 ## Using the dataset in Python
 
-To use the dataset in Python, you have two options. You can use the canonical version with the `PremadeMisophoniaDataset` class. Or you can generate your own on the fly using the `MisophoniaDatasetGenerator` class. 
+To use the dataset in Python, you have two options. You can use the canonical version with the `PremadeMisophoniaDataset` class. Or you can generate your own on the fly using the `MisophoniaDatasetGenerator` class.
 
 
 ### Initializing the canonical dataset
 
-!!! TODO: Write about how we distribute the dataset.
+Currently, we have not set up a way to distribute the dataset efficiently (TODO). Please contact misophonia.dataset@lftm.org to get access to the data files.
 
 ```python
 from misophonia_dataset.misophonia_dataset import PremadeMisophoniaDataset
 
-dataset = PremadeMisophoniaDataset.load("canonical-v1", base_save_dir="path/to/data/dir")
+dataset_name = "canonical-v1"  # Or use "demo-v1" for the small sample dataset distributed with this repo
+dataset = PremadeMisophoniaDataset.load(dataset_name, base_save_dir="path/to/data/dir")
 split = dataset.get_split("train")
 ```
 
@@ -51,7 +52,7 @@ for source in source_data:
     source.download_data()
 
 dataset = GeneratedMisophoniaDataset(source_data=source_data)
-split = dataset.get_split("train", num_samples=10)  # See doctring for more details on options 
+split = dataset.get_split("train", num_samples=10)  # See doctring for more details on options
 ```
 
 Note: You can also use the CLI or the `PremadeMisophoniaDataset.save_split` method to generate and save a custom dataset to disk for later use.
