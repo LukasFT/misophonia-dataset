@@ -2,7 +2,7 @@ import itertools
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Collection, Iterator, Sequence
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, overload
 
 import librosa
 import numpy as np
@@ -460,8 +460,20 @@ class MisophoniaDatasetSplit(Sequence[MisophoniaItem]):
         """Number of samples in this split."""
         return self._num_samples
 
-    def __getitem__(self, idx: int) -> MisophoniaItem:
+    @overload
+    def __getitem__(self, idx: int) -> MisophoniaItem: ...
+
+    @overload
+    def __getitem__(self, idx: slice | list[int]) -> Sequence[MisophoniaItem]: ...
+
+    def __getitem__(self, idx):
         """Get the item at the specified index."""
+        if isinstance(idx, slice) or isinstance(idx, list):
+            if isinstance(idx, slice):
+                indices = range(*idx.indices(self._num_samples))
+            else:
+                indices = idx
+            return [self._get_one(i) for i in indices]
         if idx < 0:  # Allow e.g. split[-1] indexing
             idx += self._num_samples
         if not (0 <= idx < self._num_samples):
