@@ -43,7 +43,7 @@ def models_to_df(
     if flatten:
         rows = [_flatten_row(row) for row in rows]
 
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(rows)  # noqa: PD901
     return df
 
 
