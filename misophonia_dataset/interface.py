@@ -246,7 +246,7 @@ class MisophoniaItem(BaseModel):
     ground_truth: np.ndarray | Path | None
     """
     Ground truth audio data. If available, this is the isolated binaural audio for the trigger sound.
-    
+
     See get_ground_truth_audio() to load the audio data from the file if it is a Path.
     """
     length: int
