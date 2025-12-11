@@ -11,6 +11,7 @@ from typing import Literal
 
 import eliot
 import numpy as np
+import pandas as pd
 import pydantic
 import soundfile as sf
 from tqdm import tqdm
@@ -75,6 +76,9 @@ class GeneratedMisophoniaDataset(MisophoniaDataset):
             A MisophoniaDatasetSplit object representing the requested split. See MisophoniaDatasetSplit for more details.
         """
         from .mixing import binaural_mix, prepare_track_specs
+
+        if num_samples <= 0:
+            raise ValueError("num_samples must be positive")
 
         if split == "test":
             warnings.warn(
@@ -309,21 +313,23 @@ class PremadeMisophoniaDataset(MisophoniaDataset):
 
             mix_id = str(uuid.uuid4())
 
-            mix_file = mix_dir / f"{mix_id}.wav"
+            mix_file = mix_dir / f"{mix_id}.flac"
             sf.write(
                 mix_file,
                 np.transpose(item.get_mix_audio()),
                 samplerate=item.global_mixing_params.sample_rate,
+                format="FLAC",
                 subtype="PCM_24",
             )
 
             gt_file = None
             if item.ground_truth is not None:
-                gt_file = gt_dir / f"{mix_id}.wav"
+                gt_file = gt_dir / f"{mix_id}.flac"
                 sf.write(
                     gt_file,
                     np.transpose(item.get_ground_truth_audio()),
                     samplerate=item.global_mixing_params.sample_rate,
+                    format="FLAC",
                     subtype="PCM_24",
                 )
 
@@ -356,6 +362,20 @@ def add_experimental_pairs_to_dataset(
     *,
     seed: int = 42,
 ) -> None:
+    """
+    Post-hoc add experimental pairs to an existing premade dataset.
+
+    It will sample trigger mixes (one foams and one non-foams per category) and create
+    corresponding control mixes by replacing the trigger foreground with a control foreground,
+    keeping everything else the same.
+
+    It will furthermore add an anchor pair for the "chewing_gum" category.
+
+    It will add an extra field `paired_uuid` to the generated control items.
+    """
+    # FIXME: This implementation is not very clean.
+    #             It could be refactored into a GenerateExperimentalPairsDataset class that does not rely on sampling from PremadeMisophoniaDataset.
+    #             But sampling directly from the source data.
     from .mixing import binaural_mix
 
     split = "test"  # Must be test split for experimental pairs
@@ -382,16 +402,35 @@ def add_experimental_pairs_to_dataset(
     )
 
     # Determine which sounds are FOAMS-validated
-    trigger_items["is_foams"] = trigger_items["foregrounds[0][source_item][validated_by][0]"] == "FOAMS"
-    foams_sounds = trigger_items[trigger_items["is_foams"]]
-    non_foams_sounds = trigger_items[~trigger_items["is_foams"]]
+    is_foams = trigger_items["foregrounds[0][source_item][validated_by][0]"] == "FOAMS"
+
+    foams_sounds = trigger_items[is_foams]
+    non_foams_sounds = trigger_items[~is_foams]
 
     # Get trigger categories appearing in the dataset (sort to make reproducible)
     trigger_categories = tuple(sorted(trigger_items["foreground_categories[0]"].unique()))
 
     # Get samples for each category
     rng = np.random.default_rng(seed)
+    existing_freesound_ids = set()
     trig_samples: list[MisophoniaItem] = []
+
+    def _sample_non_used(subset: pd.DataFrame, n: int = 1) -> tuple[list[MisophoniaItem], set[int]] | bool:
+        subset = subset.sample(frac=1.0, random_state=rng.integers(0, 2**32 - 1))
+        sampled_items = []
+        sampled_freesound_ids = set()
+        for _, row in subset.iterrows():
+            item: MisophoniaItem = row["_model"]
+            item_freesound_ids = {track.source_item.freesound_id for track in item.foregrounds + item.backgrounds}
+            if not item_freesound_ids.intersection(existing_freesound_ids):
+                sampled_items.append(item)
+                sampled_freesound_ids.update(item_freesound_ids)
+                if len(sampled_items) >= n:
+                    break
+        if len(sampled_items) < n:
+            return False
+        return sampled_items, sampled_freesound_ids
+
     for category in trigger_categories:
         # sample one FOAMS and one non-FOAMS sound from this category
         foams_in_category = foams_sounds[foams_sounds["foreground_categories[0]"] == category]
@@ -404,15 +443,39 @@ def add_experimental_pairs_to_dataset(
             )
             continue
 
-        sample_i_foams = rng.integers(len(foams_in_category))
-        trig_samples.append(foams_in_category.iloc[sample_i_foams]["_model"])
-        sample_i_non_foams = rng.integers(len(non_foams_in_category))
-        trig_samples.append(non_foams_in_category.iloc[sample_i_non_foams]["_model"])
+        f_samples = _sample_non_used(foams_in_category)
+        nf_samples = _sample_non_used(non_foams_in_category)
+        if not f_samples or not nf_samples:
+            eliot.log_message(
+                f"Could not sample non-repeating FOAMS and non-FOAMS samples in category '{category}'",
+                level="warning",
+            )
+            continue
+
+        trig_samples.extend(f_samples[0])
+        trig_samples.extend(nf_samples[0])
+        existing_freesound_ids.update(f_samples[1])
+        existing_freesound_ids.update(nf_samples[1])
+
+        if category.lower() == "chewing_gum":  # Add an extra anchor pair for the chewing_gum category
+            anchor_subset = trigger_items[trigger_items["foreground_categories[0]"] == category]
+            a_samples = _sample_non_used(anchor_subset)
+            if not a_samples:
+                eliot.log_message(
+                    f"Could not sample non-repeating anchor sample in category '{category}'",
+                    level="warning",
+                )
+            else:
+                trig_samples.extend(a_samples[0])
+                existing_freesound_ids.update(a_samples[1])
 
     assert len(control_items) >= len(trig_samples), "Not enough control items to match the number of trigger samples"
 
-    control_samples = rng.choice(control_items.index, size=len(trig_samples), replace=False)
-    control_samples = control_items.loc[control_samples]["_model"]
+    ctrl_ss = _sample_non_used(control_items, n=len(trig_samples))
+    if not ctrl_ss:
+        raise RuntimeError("Could not sample non-repeating control samples for all trigger samples")
+    existing_freesound_ids.update(ctrl_ss[1])
+    control_samples = ctrl_ss[0]
     samples: list[tuple[MisophoniaItem, MisophoniaItem]] = list(zip(trig_samples, control_samples))
 
     def _get_paired_control_item(index: int) -> MisophoniaItem:

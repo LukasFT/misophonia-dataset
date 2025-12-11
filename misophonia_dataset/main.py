@@ -30,7 +30,7 @@ def generate(
     name: Annotated[Path, typer.Argument(help="Name of the generated dataset")],
     split: Annotated[str, typer.Argument(help="Dataset split to generate")],
     *,
-    replace: Annotated[bool, typer.Option("--replace", "-f", help="Replace existing directory if it exists")] = False,
+    if_exists: Annotated[str, typer.Option("--if-exists", help="Action if dataset exists")] = "error",
     datasets: Annotated[
         list[str], typer.Option("--source-dataset", "-d", help="Name(s) of source datasets use.")
     ] = None,
@@ -48,31 +48,36 @@ def generate(
         typer.Option("--add-experimental-pairs", help="Add pairs used for the experimental validation of the dataset"),
     ] = False,
 ) -> None:
+    if if_exists not in ("error", "replace", "append"):
+        raise ValueError(f"Invalid value for if_exists: {if_exists}")
     if add_experimental_pairs and split != "test":
         raise ValueError("Experimental pairs can only be added to the 'test' split.")
 
-    datasets = _get_default_datasets() if datasets is None or len(datasets) == 0 else datasets
-    datasets = tuple(_get_dataset_from_name(name, base_dir=source_base_dir) for name in datasets)
-
-    misophonia_dataset = GeneratedMisophoniaDataset(source_data=datasets)
-
-    eliot.log_message("Preparing source data", level="info")
-    misophonia_dataset.prepare()
-
-    eliot.log_message(f"Generating and saving {split} items", level="info")
     saved_generated = PremadeMisophoniaDataset(name=name, base_save_dir=base_save_dir)
-    saved_generated.save_split(
-        misophonia_dataset.get_split(
-            split=split,
-            num_samples=num_samples,
-            random_seed=seed,
-            foregrounds_per_item=(min_fgs_pr_item, max_fgs_pr_item),
-            backgrounds_per_item=(min_bgs_pr_item, max_bgs_pr_item),
-            trig_to_control_ratio=trig_to_ctrl,
-        ),
-        if_exists="replace" if replace else "error",
-        show_progress=True,
-    )
+
+    if num_samples > 0:
+        datasets = _get_default_datasets() if datasets is None or len(datasets) == 0 else datasets
+        datasets = tuple(_get_dataset_from_name(name, base_dir=source_base_dir) for name in datasets)
+
+        misophonia_dataset = GeneratedMisophoniaDataset(source_data=datasets)
+
+        eliot.log_message("Preparing source data", level="info")
+        misophonia_dataset.prepare()
+
+        eliot.log_message(f"Generating and saving {split} items", level="info")
+
+        saved_generated.save_split(
+            misophonia_dataset.get_split(
+                split=split,
+                num_samples=num_samples,
+                random_seed=seed,
+                foregrounds_per_item=(min_fgs_pr_item, max_fgs_pr_item),
+                backgrounds_per_item=(min_bgs_pr_item, max_bgs_pr_item),
+                trig_to_control_ratio=trig_to_ctrl,
+            ),
+            if_exists=if_exists,
+            show_progress=True,
+        )
 
     if add_experimental_pairs:
         eliot.log_message("Adding experimental pairs to test split", level="info")
